@@ -23,14 +23,20 @@ typedef struct {
   struct tcp_pcb* client_pcb;
   server_state_t  state;
   uint8_t         recv_buffer[BUF_SIZE];
-  u16_t           submitted_len;
-  u16_t           recv_len;
-} tcp_server_context_t;
+} tcp_context_t;
+
+typedef struct {
+  absolute_time_t update_deadline;
+  unsigned        cur_temp;
+  tcp_context_t   tcp;
+} furnace_context_t;
 
 static err_t
-tcp_server_close(tcp_server_context_t* ctx)
+tcp_server_close(furnace_context_t* ctx_)
 {
+  tcp_context_t * ctx = &ctx_->tcp;
   err_t err = ERR_OK;
+
   if (ctx->client_pcb != NULL) {
     tcp_arg(ctx->client_pcb, NULL);
     tcp_poll(ctx->client_pcb, NULL, 0);
@@ -38,68 +44,76 @@ tcp_server_close(tcp_server_context_t* ctx)
     tcp_recv(ctx->client_pcb, NULL);
     tcp_err(ctx->client_pcb, NULL);
     err = tcp_close(ctx->client_pcb);
+
     if (err != ERR_OK) {
       DEBUG_printf("close failed %d, calling abort\n", err);
       tcp_abort(ctx->client_pcb);
       err = ERR_ABRT;
     }
+
     ctx->client_pcb = NULL;
   }
+
   if (ctx->server_pcb) {
     tcp_arg(ctx->server_pcb, NULL);
     tcp_close(ctx->server_pcb);
     ctx->server_pcb = NULL;
   }
+
   return err;
 }
 
 static err_t
 tcp_server_sent(void* ctx_, struct tcp_pcb* tpcb, u16_t len)
 {
-  tcp_server_context_t* ctx = (tcp_server_context_t*) ctx_;
+  furnace_context_t* ctx = (furnace_context_t*) ctx_;
 
   return ERR_OK;
 }
 
 err_t
-tcp_server_send_data(tcp_server_context_t* ctx,
-                     struct tcp_pcb*       tpcb,
-                     uint8_t*              data,
-                     u16_t                 size)
+tcp_server_send_data(furnace_context_t* ctx,
+                     struct tcp_pcb*    tpcb,
+                     uint8_t*           data,
+                     u16_t              size)
 {
   return tcp_write(tpcb, data, size, TCP_WRITE_FLAG_COPY);
+}
+
+void
+tcp_server_recv_(furnace_context_t *ctx, struct tcp_pcb* tpcb, struct pbuf* p)
+{
+  DEBUG_printf("tcp_server_recv %d\n", p->tot_len);
+
+  if (p->tot_len == 0)
+    return;
+
+  // Receive the buffer
+  const uint16_t buffer_left = BUF_SIZE;
+  pbuf_copy_partial(p, ctx->tcp.recv_buffer, p->tot_len > buffer_left ? buffer_left : p->tot_len, 0);
+  tcp_recved(tpcb, p->tot_len);
 }
 
 err_t
 tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
 {
-  tcp_server_context_t* ctx = (tcp_server_context_t*)ctx_;
+  furnace_context_t *ctx = (furnace_context_t*)ctx_;
 
   if (!p) {
     tcp_server_close(ctx);
     return err;
   }
 
-  if (p->tot_len > 0) {
-    DEBUG_printf(
-      "tcp_server_recv %d/%d err %d\n", p->tot_len, ctx->recv_len, err);
-
-    // Receive the buffer
-    const uint16_t buffer_left = BUF_SIZE - ctx->recv_len;
-    ctx->recv_len +=
-      pbuf_copy_partial(p,
-                        ctx->recv_buffer + ctx->recv_len,
-                        p->tot_len > buffer_left ? buffer_left : p->tot_len,
-                        0);
-    tcp_recved(tpcb, p->tot_len);
-  }
+  tcp_server_recv_(ctx, tpcb, p);
 
   pbuf_free(p);
 
   // Echo back for debugging
-  tcp_server_send_data(ctx, tpcb, ctx->recv_buffer, ctx->recv_len);
+  // tcp_server_send_data(ctx, tpcb, ctx->recv_buffer, ctx->recv_len);
 
-  ctx->recv_len = 0;
+
+  // For now we don't do anything with the recived data - we just drop it.
+  printf("WARN: Received data from client, but we are discarding it, for now.\n");
 
   return ERR_OK;
 }
@@ -107,11 +121,11 @@ tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
 static void
 tcp_server_err(void* ctx_, err_t err)
 {
-  tcp_server_context_t *ctx = (tcp_server_context_t*) ctx_;
+  furnace_context_t *ctx = (furnace_context_t*)ctx_;
 
   if (err != ERR_ABRT) {
     DEBUG_printf("tcp_client_err_fn %d\n", err);
-    ctx->state = STATE_DISCONNECTED;
+    ctx->tcp.state = STATE_DISCONNECTED;
     tcp_server_close(ctx);
   }
 }
@@ -119,31 +133,32 @@ tcp_server_err(void* ctx_, err_t err)
 static err_t
 tcp_server_accept(void* ctx_, struct tcp_pcb* client_pcb, err_t err)
 {
-  tcp_server_context_t* ctx = (tcp_server_context_t*) ctx_;
+  furnace_context_t *ctx = (furnace_context_t*)ctx_;
 
   if (err != ERR_OK || client_pcb == NULL) {
     DEBUG_printf("Failure in accept\n");
-    ctx->state = STATE_DISCONNECTED;
+    ctx->tcp.state = STATE_DISCONNECTED;
     tcp_server_close(ctx);
     return ERR_VAL;
   }
 
   DEBUG_printf("Client connected\n");
 
-  ctx->client_pcb = client_pcb;
+  ctx->tcp.client_pcb = client_pcb;
   tcp_arg(client_pcb, ctx);
   tcp_sent(client_pcb, tcp_server_sent);
   tcp_recv(client_pcb, tcp_server_recv);
   tcp_err(client_pcb, tcp_server_err);
 
-  ctx->state = STATE_CONNECTED;
+  ctx->tcp.state = STATE_CONNECTED;
   return ERR_OK;
 }
 
 static bool
 tcp_server_open(void* ctx_)
 {
-  tcp_server_context_t* ctx = (tcp_server_context_t*) ctx_;
+  furnace_context_t *ctx = (furnace_context_t*)ctx_;
+
   DEBUG_printf("Starting server at %s on port %u\n",
                ip4addr_ntoa(netif_ip4_addr(netif_list)),
                TCP_PORT);
@@ -160,8 +175,8 @@ tcp_server_open(void* ctx_)
     return false;
   }
 
-  ctx->server_pcb = tcp_listen_with_backlog(pcb, 1);
-  if (!ctx->server_pcb) {
+  ctx->tcp.server_pcb = tcp_listen_with_backlog(pcb, 1);
+  if (!ctx->tcp.server_pcb) {
     DEBUG_printf("failed to listen\n");
     if (pcb) {
       tcp_close(pcb);
@@ -169,73 +184,90 @@ tcp_server_open(void* ctx_)
     return false;
   }
 
-  ctx->state = STATE_LISTENING;
-  tcp_arg(ctx->server_pcb, ctx);
-  tcp_accept(ctx->server_pcb, tcp_server_accept);
+  ctx->tcp.state = STATE_LISTENING;
+  tcp_arg(ctx->tcp.server_pcb, ctx);
+  tcp_accept(ctx->tcp.server_pcb, tcp_server_accept);
 
   return true;
 }
 
-static unsigned
-thermocouple_get(void)
+void
+do_thermocouple_work(furnace_context_t *ctx, bool deadline_met)
 {
+  if (!deadline_met)
+    return;
+
   // fake work
   sleep_ms(100);
 
-  return 1337;
+  ctx->cur_temp = 1337;
 }
 
 void
-run_tcp_server_test(void)
+do_tcp_work(furnace_context_t *ctx, bool deadline_met)
 {
-  tcp_server_context_t* ctx;
   char temperature_str[32];
 
-  ctx = calloc(1, sizeof(tcp_server_context_t));
+  cyw43_arch_poll();
+
+  // If disconnected, reset and setup listening
+  if (ctx->tcp.state == STATE_DISCONNECTED) {
+    memset(&ctx->tcp, 0, sizeof(ctx->tcp));
+    if (!tcp_server_open(ctx)) {
+      tcp_server_close(ctx);
+    }
+  }
+
+  if (ctx->tcp.client_pcb && deadline_met) {
+    const int temperature_str_len = snprintf(
+      temperature_str,
+      sizeof(temperature_str),
+      "%u\n",
+      ctx->cur_temp
+    );
+
+    tcp_server_send_data(
+      ctx,
+      ctx->tcp.client_pcb,
+      (uint8_t*)temperature_str,
+      temperature_str_len
+    );
+  }
+
+}
+
+int
+run_tcp_server_test(void)
+{
+  furnace_context_t* ctx;
+
+  ctx = calloc(1, sizeof(furnace_context_t));
 
   if (!ctx) {
-    return;
+    return 1;
   }
 
   cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
 
   while (1) {
-    memset(ctx, 0, sizeof(*ctx));
-    if (!tcp_server_open(ctx)) {
-      tcp_server_close(ctx);
-      sleep_ms(2000);
-      continue;
-    }
+    const bool deadline_met = get_absolute_time() > ctx->update_deadline;
 
-    // Deadline on which we have to get the measurements and update the user
-    absolute_time_t update_deadline = make_timeout_time_ms(1000);
+    do_thermocouple_work(ctx, deadline_met);
+    do_tcp_work(ctx, deadline_met);
 
-    while (ctx->state != STATE_DISCONNECTED) {
-      cyw43_arch_wait_for_work_until(update_deadline);
-      cyw43_arch_poll();
-
-      if (ctx->client_pcb && get_absolute_time() > update_deadline) {
-        update_deadline = make_timeout_time_ms(3000);
-
-        const unsigned temperature = thermocouple_get();
-        const int temperature_str_len = snprintf(
-          temperature_str, sizeof(temperature_str), "%" PRId64 "\n", get_absolute_time());
-
-        tcp_server_send_data(ctx,
-                             ctx->client_pcb,
-                             (uint8_t*)temperature_str,
-                             temperature_str_len);
-      }
-
-    }
-
+    if (deadline_met)
+      ctx->update_deadline = make_timeout_time_ms(1000);
   }
 
   free(ctx);
+
+  return 0;
 }
 
+int spi_main(void);
+
 int
-main(void)
+main_(void)
 {
   stdio_init_all();
 
@@ -243,6 +275,8 @@ main(void)
     printf("failed to initialise\n");
     return 1;
   }
+
+  puts("in main");
 
   cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
 
@@ -258,9 +292,23 @@ main(void)
     printf("Connected.\n");
   }
 
-  run_tcp_server_test();
+  const int ret = run_tcp_server_test();
 
   cyw43_arch_deinit();
 
-  return 0;
+  return ret;
+}
+
+int
+main(void)
+{
+  while(1) {
+    int ret = main_();
+
+    if (ret)
+      printf("main() failed with %d\n", ret);
+
+    printf("Restarting main in 3s\n");
+    sleep_ms(3000);
+  }
 }

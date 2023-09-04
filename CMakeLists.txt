@@ -12,6 +12,7 @@ pico_sdk_init()
 
 add_executable(${PROJECT_NAME}
         furnace.c
+        spi.c
         )
 target_compile_definitions(furnace PRIVATE
         WIFI_SSID=\"${WIFI_SSID}\"
@@ -27,7 +28,7 @@ target_link_libraries(furnace
         )
 pico_add_extra_outputs(${PROJECT_NAME})
 
-target_link_libraries(${PROJECT_NAME} pico_stdlib)
+target_link_libraries(${PROJECT_NAME} pico_stdlib hardware_spi)
 
 
 pico_enable_stdio_usb(${PROJECT_NAME} 1)
