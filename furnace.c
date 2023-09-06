@@ -11,18 +11,11 @@
 
 #define TCP_PORT        4242
 #define DEBUG_printf    printf
-
-typedef enum {
-  STATE_DISCONNECTED = 0,
-  STATE_LISTENING,
-  STATE_CONNECTED,
-} server_state_t;
 #define BUF_SIZE        64
 
 typedef struct {
   struct tcp_pcb* server_pcb;
   struct tcp_pcb* client_pcb;
-  server_state_t  state;
   uint8_t         recv_buffer[BUF_SIZE];
 } tcp_context_t;
 
@@ -127,7 +120,6 @@ tcp_server_err(void* ctx_, err_t err)
 
   if (err != ERR_ABRT) {
     DEBUG_printf("tcp_client_err_fn %d\n", err);
-    ctx->tcp.state = STATE_DISCONNECTED;
     tcp_server_close(ctx);
   }
 }
@@ -139,7 +131,6 @@ tcp_server_accept(void* ctx_, struct tcp_pcb* client_pcb, err_t err)
 
   if (err != ERR_OK || client_pcb == NULL) {
     DEBUG_printf("Failure in accept\n");
-    ctx->tcp.state = STATE_DISCONNECTED;
     tcp_server_close(ctx);
     return ERR_VAL;
   }
@@ -152,7 +143,6 @@ tcp_server_accept(void* ctx_, struct tcp_pcb* client_pcb, err_t err)
   tcp_recv(client_pcb, tcp_server_recv);
   tcp_err(client_pcb, tcp_server_err);
 
-  ctx->tcp.state = STATE_CONNECTED;
   return ERR_OK;
 }
 
@@ -186,7 +176,6 @@ tcp_server_open(void* ctx_)
     return false;
   }
 
-  ctx->tcp.state = STATE_LISTENING;
   tcp_arg(ctx->tcp.server_pcb, ctx);
   tcp_accept(ctx->tcp.server_pcb, tcp_server_accept);
 
@@ -208,12 +197,12 @@ do_thermocouple_work(furnace_context_t *ctx, bool deadline_met)
 void
 do_tcp_work(furnace_context_t *ctx, bool deadline_met)
 {
-  char temperature_str[32];
+  char temperature_str[16];
 
   cyw43_arch_poll();
 
   // If disconnected, reset and setup listening
-  if (ctx->tcp.state == STATE_DISCONNECTED) {
+  if (ctx->tcp.server_pcb == NULL || ctx->tcp.server_pcb->state == CLOSED) {
     memset(&ctx->tcp, 0, sizeof(ctx->tcp));
     if (!tcp_server_open(ctx)) {
       tcp_server_close(ctx);
