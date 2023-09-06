@@ -217,7 +217,7 @@ do_tcp_work(furnace_context_t *ctx, bool deadline_met)
 }
 
 int
-run_tcp_server_test(void)
+main_work_loop(void)
 {
   furnace_context_t* ctx;
 
@@ -270,7 +270,7 @@ main_(void)
     DEBUG_printf("Connected.\n");
   }
 
-  const int ret = run_tcp_server_test();
+  const int ret = main_work_loop();
 
   cyw43_arch_deinit();
 
