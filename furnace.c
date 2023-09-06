@@ -129,6 +129,9 @@ tcp_server_accept(void* ctx_, struct tcp_pcb* client_pcb, err_t err)
   tcp_recv(client_pcb, tcp_server_recv);
   tcp_err(client_pcb, tcp_server_err);
 
+  client_pcb->so_options |= SOF_KEEPALIVE;
+  client_pcb->keep_intvl = 4000; /* 4 seconds */
+
   return ERR_OK;
 }
 
