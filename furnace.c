@@ -26,32 +26,29 @@ typedef struct {
 } furnace_context_t;
 
 static err_t
-tcp_server_close(furnace_context_t* ctx_)
+tcp_server_close(furnace_context_t* ctx)
 {
-  tcp_context_t * ctx = &ctx_->tcp;
   err_t err = ERR_OK;
 
-  if (ctx->client_pcb != NULL) {
-    tcp_arg(ctx->client_pcb, NULL);
-    tcp_poll(ctx->client_pcb, NULL, 0);
-    tcp_sent(ctx->client_pcb, NULL);
-    tcp_recv(ctx->client_pcb, NULL);
-    tcp_err(ctx->client_pcb, NULL);
-    err = tcp_close(ctx->client_pcb);
+  if (ctx->tcp.client_pcb != NULL) {
+    tcp_arg(ctx->tcp.client_pcb, NULL);
+    tcp_recv(ctx->tcp.client_pcb, NULL);
+    tcp_err(ctx->tcp.client_pcb, NULL);
+    err = tcp_close(ctx->tcp.client_pcb);
 
     if (err != ERR_OK) {
       DEBUG_printf("close failed %d, calling abort\n", err);
-      tcp_abort(ctx->client_pcb);
+      tcp_abort(ctx->tcp.client_pcb);
       err = ERR_ABRT;
     }
 
-    ctx->client_pcb = NULL;
+    ctx->tcp.client_pcb = NULL;
   }
 
-  if (ctx->server_pcb) {
-    tcp_arg(ctx->server_pcb, NULL);
-    tcp_close(ctx->server_pcb);
-    ctx->server_pcb = NULL;
+  if (ctx->tcp.server_pcb) {
+    tcp_arg(ctx->tcp.server_pcb, NULL);
+    tcp_close(ctx->tcp.server_pcb);
+    ctx->tcp.server_pcb = NULL;
   }
 
   return err;
