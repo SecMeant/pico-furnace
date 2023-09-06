@@ -54,14 +54,6 @@ tcp_server_close(furnace_context_t* ctx)
   return err;
 }
 
-static err_t
-tcp_server_sent(void* ctx_, struct tcp_pcb* tpcb, u16_t len)
-{
-  furnace_context_t* ctx = (furnace_context_t*) ctx_;
-
-  return ERR_OK;
-}
-
 err_t
 tcp_server_send_data(furnace_context_t* ctx,
                      struct tcp_pcb*    tpcb,
@@ -115,10 +107,8 @@ tcp_server_err(void* ctx_, err_t err)
 {
   furnace_context_t *ctx = (furnace_context_t*)ctx_;
 
-  if (err != ERR_ABRT) {
-    DEBUG_printf("tcp_client_err_fn %d\n", err);
-    tcp_server_close(ctx);
-  }
+  DEBUG_printf("tcp_client_err_fn %d\n", err);
+  tcp_server_close(ctx);
 }
 
 static err_t
@@ -136,7 +126,6 @@ tcp_server_accept(void* ctx_, struct tcp_pcb* client_pcb, err_t err)
 
   ctx->tcp.client_pcb = client_pcb;
   tcp_arg(client_pcb, ctx);
-  tcp_sent(client_pcb, tcp_server_sent);
   tcp_recv(client_pcb, tcp_server_recv);
   tcp_err(client_pcb, tcp_server_err);
 
