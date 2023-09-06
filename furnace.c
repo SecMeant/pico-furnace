@@ -112,8 +112,7 @@ tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
   // tcp_server_send_data(ctx, tpcb, ctx->recv_buffer, ctx->recv_len);
 
 
-  // For now we don't do anything with the recived data - we just drop it.
-  printf("WARN: Received data from client, but we are discarding it, for now.\n");
+  DEBUG_printf("tcp_server_recv: %.*s\n", p->tot_len, ctx->tcp.recv_buffer);
 
   return ERR_OK;
 }
@@ -272,24 +271,22 @@ main_(void)
   stdio_init_all();
 
   if (cyw43_arch_init()) {
-    printf("failed to initialise\n");
+    DEBUG_printf("failed to initialise\n");
     return 1;
   }
-
-  puts("in main");
 
   cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
 
   cyw43_arch_enable_sta_mode();
 
-  printf("Connecting to Wi-Fi...\n");
+  DEBUG_printf("Connecting to Wi-Fi...\n");
 
   if (cyw43_arch_wifi_connect_timeout_ms(
         WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 30000)) {
-    printf("failed to connect.\n");
+    DEBUG_printf("failed to connect.\n");
     return 1;
   } else {
-    printf("Connected.\n");
+    DEBUG_printf("Connected.\n");
   }
 
   const int ret = run_tcp_server_test();
@@ -306,9 +303,8 @@ main(void)
     int ret = main_();
 
     if (ret)
-      printf("main() failed with %d\n", ret);
+      DEBUG_printf("main() failed with %d\n", ret);
 
-    printf("Restarting main in 3s\n");
     sleep_ms(3000);
   }
 }
