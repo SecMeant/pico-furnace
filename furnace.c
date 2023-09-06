@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "pico/bootrom.h"
 #include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
 
@@ -111,6 +112,8 @@ tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
   // Echo back for debugging
   // tcp_server_send_data(ctx, tpcb, ctx->recv_buffer, ctx->recv_len);
 
+  if (memcmp(ctx->tcp.recv_buffer, "reboot", 6) == 0)
+    reset_usb_boot(0,0);
 
   DEBUG_printf("tcp_server_recv: %.*s\n", p->tot_len, ctx->tcp.recv_buffer);
 
