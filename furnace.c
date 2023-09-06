@@ -11,13 +11,13 @@
 
 #define TCP_PORT        4242
 #define DEBUG_printf    printf
-#define BUF_SIZE        512
 
 typedef enum {
   STATE_DISCONNECTED = 0,
   STATE_LISTENING,
   STATE_CONNECTED,
 } server_state_t;
+#define BUF_SIZE        64
 
 typedef struct {
   struct tcp_pcb* server_pcb;
