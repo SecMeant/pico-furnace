@@ -12,25 +12,38 @@
 
 #define DMA 0
 
+void init_spi(void)
+{
+    /* Enable SPI at 1 MHz and connect to GPIOs */
+    spi_init(FURNACE_SPI_INSTANCE, 1000 * 512);
+    gpio_set_function(FURNACE_SPI_RX_PIN, GPIO_FUNC_SPI);
+
+    /*
+     * We set chipselect to gpio to make sure It's pulled up/down when we want.
+     * By default raspberry was pulling the CS up after each byte.
+     */
+    gpio_init(FURNACE_SPI_CSN_PIN);
+    gpio_set_dir(FURNACE_SPI_CSN_PIN, GPIO_OUT);
+    gpio_put(FURNACE_SPI_CSN_PIN, 1);
+
+    gpio_set_function(FURNACE_SPI_SCK_PIN, GPIO_FUNC_SPI);
+    gpio_set_function(FURNACE_SPI_TX_PIN, GPIO_FUNC_SPI);
+
+    // Force loopback for testing
+    // hw_set_bits(&spi_get_hw(FURNACE_SPI_INSTANCE)->cr1, SPI_SSPCR1_LBM_BITS);
+}
+
 int spi_main() {
 
     printf("SPI DMA example\n");
 
-    // Enable SPI at 1 MHz and connect to GPIOs
-    spi_init(FURNACE_SPI_INSTANCE, 1000 * 1000);
-    gpio_set_function(FURNACE_SPI_RX_PIN, GPIO_FUNC_SPI);
-    gpio_init(FURNACE_SPI_CSN_PIN);
-    gpio_set_function(FURNACE_SPI_SCK_PIN, GPIO_FUNC_SPI);
-    gpio_set_function(FURNACE_SPI_TX_PIN, GPIO_FUNC_SPI);
+    init_spi();
 
 #if DMA
     // Grab some unused dma channels
     const uint dma_tx = dma_claim_unused_channel(true);
     const uint dma_rx = dma_claim_unused_channel(true);
 #endif
-
-    // Force loopback for testing (I don't have an SPI device handy)
-    hw_set_bits(&spi_get_hw(FURNACE_SPI_INSTANCE)->cr1, SPI_SSPCR1_LBM_BITS);
 
     static uint8_t txbuf[TEST_SIZE];
     static uint8_t rxbuf[TEST_SIZE];
