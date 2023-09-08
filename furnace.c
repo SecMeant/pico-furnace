@@ -17,6 +17,7 @@ typedef struct {
   struct tcp_pcb* server_pcb;
   struct tcp_pcb* client_pcb;
   uint8_t         recv_buffer[BUF_SIZE];
+  uint16_t        recv_len; /* Received, valid bytes in recv_buffer */
 } tcp_context_t;
 
 typedef struct {
@@ -71,9 +72,15 @@ tcp_server_recv_(furnace_context_t *ctx, struct tcp_pcb* tpcb, struct pbuf* p)
   if (p->tot_len == 0)
     return;
 
-  // Receive the buffer
+  /*
+   * Receive the buffer
+   *
+   * TODO: We should probably call pbuf_copy_partial in a loop
+   *       to make sure we receive everything.
+   */
   const uint16_t buffer_left = BUF_SIZE;
-  pbuf_copy_partial(p, ctx->tcp.recv_buffer, p->tot_len > buffer_left ? buffer_left : p->tot_len, 0);
+  ctx->tcp.recv_len =
+    pbuf_copy_partial(p, ctx->tcp.recv_buffer, p->tot_len > buffer_left ? buffer_left : p->tot_len, 0);
   tcp_recved(tpcb, p->tot_len);
 }
 
