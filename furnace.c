@@ -30,7 +30,7 @@ typedef struct {
   tcp_context_t   tcp;
 } furnace_context_t;
 
-void init_spi(void);
+int max31856_init(void);
 
 static err_t
 tcp_server_close(furnace_context_t* ctx)
@@ -90,23 +90,6 @@ tcp_server_recv_(furnace_context_t *ctx, struct tcp_pcb* tpcb, struct pbuf* p)
   tcp_recved(tpcb, p->tot_len);
 }
 
-typedef struct {
-  uint8_t *src;
-  uint8_t *dst;
-  size_t len;
-} spi_transation_t;
-
-static uint8_t g_spi_transtion_src_buffer32[32];
-static uint8_t g_spi_transtion_dst_buffer32[32];
-
-/* TODO: We probably want to return status code */
-static void spi_transmit(spi_transation_t t)
-{
-  gpio_put(FURNACE_SPI_CSN_PIN, 0);
-  spi_write_read_blocking(FURNACE_SPI_INSTANCE, t.src, t.dst, t.len);
-  gpio_put(FURNACE_SPI_CSN_PIN, 1);
-}
-
 err_t
 tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
 {
@@ -124,31 +107,8 @@ tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
   // Echo back for debugging
   // tcp_server_send_data(ctx, tpcb, ctx->recv_buffer, ctx->recv_len);
 
-  if (memcmp(ctx->tcp.recv_buffer, "reboot", 6) == 0) {
+  if (memcmp(ctx->tcp.recv_buffer, "reboot", 6) == 0)
     reset_usb_boot(0,0);
-  } else if (memcmp(ctx->tcp.recv_buffer, "spi", 3) == 0) {
-    g_spi_transtion_src_buffer32[0] = 0x80;
-    g_spi_transtion_src_buffer32[1] = 0x81;
-
-    const spi_transation_t t1 = {
-      .src = g_spi_transtion_src_buffer32,
-      .dst = g_spi_transtion_dst_buffer32,
-      .len = 2,
-    };
-
-    spi_transmit(t1);
-
-    memset(g_spi_transtion_src_buffer32, 0, 10);
-    memset(g_spi_transtion_dst_buffer32, 0, 10);
-
-    const spi_transation_t t2 = {
-      .src = g_spi_transtion_src_buffer32,
-      .dst = g_spi_transtion_dst_buffer32,
-      .len = 10,
-    };
-
-    spi_transmit(t2);
-  }
 
   DEBUG_printf("tcp_server_recv: %.*s\n", p->tot_len, ctx->tcp.recv_buffer);
 
@@ -309,7 +269,7 @@ main_(void)
     return 1;
   }
 
-  init_spi();
+  max31856_init();
 
   cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
 

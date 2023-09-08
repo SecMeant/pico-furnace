@@ -5,6 +5,7 @@
 
 #include "pico/stdlib.h"
 #include "pico/binary_info.h"
+#include "hardware/gpio.h"
 #include "hardware/spi.h"
 #include "hardware/dma.h"
 
@@ -12,7 +13,7 @@
 
 #define DMA 0
 
-void init_spi(void)
+void max31856_spi_init(void)
 {
     /* Enable SPI at 1 MHz and connect to GPIOs */
     spi_init(FURNACE_SPI_INSTANCE, 1000 * 512);
@@ -33,11 +34,12 @@ void init_spi(void)
     // hw_set_bits(&spi_get_hw(FURNACE_SPI_INSTANCE)->cr1, SPI_SSPCR1_LBM_BITS);
 }
 
-int spi_main() {
+int spi_main()
+{
 
     printf("SPI DMA example\n");
 
-    init_spi();
+    max31856_spi_init();
 
 #if DMA
     // Grab some unused dma channels
