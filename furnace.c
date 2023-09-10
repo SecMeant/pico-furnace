@@ -18,6 +18,9 @@
 #define DEBUG_printf    printf
 #define BUF_SIZE        64
 
+/* GPIO for enabling and disabling heating of the furnace. */
+#define FURNACE_FIRE_PIN 21
+
 typedef struct {
   struct tcp_pcb* server_pcb;
   struct tcp_pcb* client_pcb;
@@ -298,6 +301,11 @@ main(void)
 
   cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
   cyw43_arch_enable_sta_mode();
+
+  /* Setup GPIO for enabling and disabling heating. */
+  gpio_init(FURNACE_FIRE_PIN);
+  gpio_set_dir(FURNACE_FIRE_PIN, GPIO_OUT);
+  gpio_put(FURNACE_FIRE_PIN, 0);
 
   while(1) {
     int ret = main_();
