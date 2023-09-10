@@ -30,6 +30,8 @@ void max31856_spi_init(void)
     gpio_set_function(FURNACE_SPI_SCK_PIN, GPIO_FUNC_SPI);
     gpio_set_function(FURNACE_SPI_TX_PIN, GPIO_FUNC_SPI);
 
+    spi_set_format(FURNACE_SPI_INSTANCE, 8, SPI_CPOL_0, SPI_CPHA_1, SPI_MSB_FIRST);
+
     // Force loopback for testing
     // hw_set_bits(&spi_get_hw(FURNACE_SPI_INSTANCE)->cr1, SPI_SSPCR1_LBM_BITS);
 }
