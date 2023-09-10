@@ -12,6 +12,7 @@
 #include "lwip/tcp.h"
 
 #include "spi_config.h"
+#include "max31856.h"
 
 #define TCP_PORT        4242
 #define DEBUG_printf    printf
@@ -262,19 +263,6 @@ int spi_main(void);
 int
 main_(void)
 {
-  stdio_init_all();
-
-  if (cyw43_arch_init()) {
-    DEBUG_printf("failed to initialise\n");
-    return 1;
-  }
-
-  max31856_init();
-
-  cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
-
-  cyw43_arch_enable_sta_mode();
-
   DEBUG_printf("Connecting to Wi-Fi...\n");
 
   if (cyw43_arch_wifi_connect_timeout_ms(
@@ -283,6 +271,12 @@ main_(void)
     return 1;
   } else {
     DEBUG_printf("Connected.\n");
+  }
+
+  const int max31856_init_status = max31856_init();
+  if (max31856_init_status) {
+    DEBUG_printf("max31856 init failed with %d\n", max31856_init_status);
+    return max31856_init_status;
   }
 
   const int ret = main_work_loop();
@@ -295,6 +289,16 @@ main_(void)
 int
 main(void)
 {
+  stdio_init_all();
+
+  if (cyw43_arch_init()) {
+    DEBUG_printf("failed to initialise\n");
+    return 1;
+  }
+
+  cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
+  cyw43_arch_enable_sta_mode();
+
   while(1) {
     int ret = main_();
 
