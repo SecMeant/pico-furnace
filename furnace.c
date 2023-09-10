@@ -30,8 +30,28 @@ typedef struct {
 
 typedef struct {
   absolute_time_t update_deadline;
-  unsigned        cur_temp;
+  int             cur_temp;
   tcp_context_t   tcp;
+
+  /*
+   * Tells for how big chunk of a second furnace should be heating.
+   * Each second is divided into 15 equal chunks.
+   * For pwm_level number of chunks each second we will enable the heating.
+   * For 10-pwm_level number of chunks each second we will disable the heating.
+   *
+   * pwm_current tells in which mode we are right now.
+   * 1 - heating
+   * 0 - not heating
+   *
+   * pwm_deadline holds 59 most significant bits of timestamp at which we
+   * should switch heating state, ie. from heating to non-heating or from
+   * non-heating to heating.
+   *
+   * TODO: Handle pwm_deadline overflow. Should we handle it?
+   */
+  uint64_t pwm_level    : 4;
+  uint64_t pwm_current  : 1;
+  uint64_t pwm_deadline : 59;
 } furnace_context_t;
 
 int max31856_init(void);
@@ -68,7 +88,7 @@ tcp_server_close(furnace_context_t* ctx)
 err_t
 tcp_server_send_data(furnace_context_t* ctx,
                      struct tcp_pcb*    tpcb,
-                     uint8_t*           data,
+                     const uint8_t*     data,
                      u16_t              size)
 {
   return tcp_write(tpcb, data, size, TCP_WRITE_FLAG_COPY);
@@ -98,6 +118,7 @@ err_t
 tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
 {
   furnace_context_t *ctx = (furnace_context_t*)ctx_;
+  unsigned arg_pwm;
 
   if (!p) {
     tcp_server_close(ctx);
@@ -111,8 +132,17 @@ tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
   // Echo back for debugging
   // tcp_server_send_data(ctx, tpcb, ctx->recv_buffer, ctx->recv_len);
 
-  if (memcmp(ctx->tcp.recv_buffer, "reboot", 6) == 0)
+  if (memcmp(ctx->tcp.recv_buffer, "reboot", 6) == 0) {
     reset_usb_boot(0,0);
+  } else if (sscanf(ctx->tcp.recv_buffer, "pwm %u", &arg_pwm) == 1) {
+    if (arg_pwm > 15) {
+      const char msg[] = "pwm argument too big!\n";
+      const size_t msg_len = sizeof(msg)-1;
+      tcp_server_send_data(ctx, tpcb, msg, msg_len);
+    } else {
+      ctx->pwm_level = arg_pwm;
+    }
+  }
 
   DEBUG_printf("tcp_server_recv: %.*s\n", p->tot_len, ctx->tcp.recv_buffer);
 
@@ -219,7 +249,7 @@ do_tcp_work(furnace_context_t *ctx, bool deadline_met)
     const int temperature_str_len = snprintf(
       temperature_str,
       sizeof(temperature_str),
-      "%u\n",
+      "%d\n",
       ctx->cur_temp
     );
 
@@ -231,6 +261,69 @@ do_tcp_work(furnace_context_t *ctx, bool deadline_met)
     );
   }
 
+}
+
+void
+do_pwm_work_maybe_switch(furnace_context_t *ctx)
+{
+  /* Get current time and "unpack" current pwm switch deadline. */
+  const absolute_time_t current_time = get_absolute_time();
+  const absolute_time_t current_deadline = ctx->pwm_deadline << 5;
+
+  if (current_time < current_deadline)
+    return;
+
+  /* Divide 5 seconds into 15 equal chunks in microseconds */
+  const absolute_time_t time_chunk = 5000000 / 15;
+
+  absolute_time_t new_duration;
+
+  /*
+   * If we were heating, we calculate for
+   * how long we will now not be heating.
+   */
+  if (ctx->pwm_current)
+    new_duration = time_chunk * (15 - ctx->pwm_level);
+
+  /*
+   * If we were not heating, we calculate for
+   * how long we will now be heating.
+   */
+  else
+    new_duration = time_chunk * (ctx->pwm_level);
+
+  /* Calculate new timestamp and discard bottom 5 bits - we don't care. */
+  new_duration += current_time;
+  new_duration >>= 5;
+
+  ctx->pwm_deadline = new_duration;
+  ctx->pwm_current = !ctx->pwm_current;
+
+  DEBUG_printf("HEAT: %d\n", (int) ctx->pwm_current);
+}
+
+void
+do_pwm_work_(furnace_context_t *ctx)
+{
+  if (ctx->pwm_level == 0) {
+    ctx->pwm_current = 0;
+    return;
+  }
+
+  if (ctx->pwm_level == 15) {
+    ctx->pwm_current = 1;
+    return;
+  }
+
+  do_pwm_work_maybe_switch(ctx);
+}
+
+void
+do_pwm_work(furnace_context_t *ctx)
+{
+  do_pwm_work_(ctx);
+
+  gpio_put(FURNACE_FIRE_PIN, ctx->pwm_current);
 }
 
 int
@@ -249,6 +342,7 @@ main_work_loop(void)
   while (1) {
     const bool deadline_met = get_absolute_time() > ctx->update_deadline;
 
+    do_pwm_work(ctx);
     do_thermocouple_work(ctx, deadline_met);
     do_tcp_work(ctx, deadline_met);
 
