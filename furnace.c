@@ -224,10 +224,12 @@ do_thermocouple_work(furnace_context_t *ctx, bool deadline_met)
   if (!deadline_met)
     return;
 
-  // fake work
-  sleep_ms(100);
+  const bool rdy = gpio_get(FURNACE_MAX31856_RDY);
+  if (rdy)
+    DEBUG_printf("RDY: %d\n", (int) rdy);
 
-  ctx->cur_temp = 1337;
+  ctx->cur_temp = max31856_read_temperature();
+  DEBUG_printf("cold: %u\n", max31856_read_cold_junction());
 }
 
 void
