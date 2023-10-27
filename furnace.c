@@ -230,6 +230,7 @@ do_thermocouple_work(furnace_context_t *ctx, bool deadline_met)
 
   ctx->cur_temp = max31856_read_temperature();
   DEBUG_printf("cold: %u\n", max31856_read_cold_junction());
+  DEBUG_printf("hot: %u\n", ctx->cur_temp);
 }
 
 void

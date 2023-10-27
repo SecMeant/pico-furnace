@@ -21,7 +21,10 @@ int max31856_init(void)
   max31856_write_reg8(MAX31856_REG_CR0, 0x81);
 
   /* Set thermocouple type to S */
-  max31856_write_reg8(MAX31856_REG_CR1, 0x06);
+  // max31856_write_reg8(MAX31856_REG_CR1, 0x06);
+
+  /* Set thermocouple type to K */
+  max31856_write_reg8(MAX31856_REG_CR1, 0x03);
 
   /* 
    * Sanity check.
@@ -30,7 +33,7 @@ int max31856_init(void)
    */
   if (max31856_read_reg8(MAX31856_REG_CR0) != 0x81)
     return 1;
-  if (max31856_read_reg8(MAX31856_REG_CR1) != 0x06)
+  if (max31856_read_reg8(MAX31856_REG_CR1) != 0x03)
     return 2;
   if (max31856_read_reg8(MAX31856_REG_MASK) != 0xff)
     return 3;
