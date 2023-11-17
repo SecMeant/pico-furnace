@@ -280,8 +280,8 @@ do_pwm_work_maybe_switch(furnace_context_t *ctx)
   if (current_time < current_deadline)
     return;
 
-  /* Divide 5 seconds into 15 equal chunks in microseconds */
-  const absolute_time_t time_chunk = 5000000 / 15;
+  /* Divide 1000 microseconds into 15 equal chunks. */
+  const absolute_time_t time_chunk = 1000 / 15;
 
   absolute_time_t new_duration;
 
