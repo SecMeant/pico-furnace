@@ -134,9 +134,13 @@ tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
 
   if (memcmp(ctx->tcp.recv_buffer, "reboot", 6) == 0) {
     reset_usb_boot(0,0);
+  } else if (strncmp(ctx->tcp.recv_buffer, "pwm\n", 4) == 0) {
+      char msg[16];
+      const size_t msg_len = snprintf(msg, sizeof(msg), "pwm = %d\r\n", ctx->pwm_level);
+      tcp_server_send_data(ctx, tpcb, msg, msg_len);
   } else if (sscanf(ctx->tcp.recv_buffer, "pwm %u", &arg_pwm) == 1) {
     if (arg_pwm > 15) {
-      const char msg[] = "pwm argument too big!\n";
+      const char msg[] = "pwm argument too big!\r\n";
       const size_t msg_len = sizeof(msg)-1;
       tcp_server_send_data(ctx, tpcb, msg, msg_len);
     } else {
