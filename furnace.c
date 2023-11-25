@@ -35,7 +35,7 @@ typedef struct {
 
   /*
    * Tells for how big chunk of a second furnace should be heating.
-   * Each second is divided into 15 equal chunks.
+   * Each second is divided into 50 equal chunks.
    * For pwm_level number of chunks each second we will enable the heating.
    * For 10-pwm_level number of chunks each second we will disable the heating.
    *
@@ -49,7 +49,7 @@ typedef struct {
    *
    * TODO: Handle pwm_deadline overflow. Should we handle it?
    */
-  uint64_t pwm_level    : 4;
+  uint64_t pwm_level    : 7;
   uint64_t pwm_current  : 1;
   uint64_t pwm_deadline : 59;
 } furnace_context_t;
@@ -139,7 +139,7 @@ tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
       const size_t msg_len = snprintf(msg, sizeof(msg), "pwm = %d\r\n", ctx->pwm_level);
       tcp_server_send_data(ctx, tpcb, msg, msg_len);
   } else if (sscanf(ctx->tcp.recv_buffer, "pwm %u", &arg_pwm) == 1) {
-    if (arg_pwm > 15) {
+    if (arg_pwm > 127) {
       const char msg[] = "pwm argument too big!\r\n";
       const size_t msg_len = sizeof(msg)-1;
       tcp_server_send_data(ctx, tpcb, msg, msg_len);
@@ -251,23 +251,6 @@ do_tcp_work(furnace_context_t *ctx, bool deadline_met)
       tcp_server_close(ctx);
     }
   }
-
-  if (ctx->tcp.client_pcb && deadline_met) {
-    const int temperature_str_len = snprintf(
-      temperature_str,
-      sizeof(temperature_str),
-      "%d\n",
-      ctx->cur_temp
-    );
-
-    tcp_server_send_data(
-      ctx,
-      ctx->tcp.client_pcb,
-      (uint8_t*)temperature_str,
-      temperature_str_len
-    );
-  }
-
 }
 
 void
@@ -280,8 +263,8 @@ do_pwm_work_maybe_switch(furnace_context_t *ctx)
   if (current_time < current_deadline)
     return;
 
-  /* Divide 1000 microseconds into 15 equal chunks. */
-  const absolute_time_t time_chunk = 1000 / 15;
+  /* Divide 1000 microseconds into 127 equal chunks. */
+  const absolute_time_t time_chunk = 1000 / 127;
 
   absolute_time_t new_duration;
 
@@ -290,7 +273,7 @@ do_pwm_work_maybe_switch(furnace_context_t *ctx)
    * how long we will now not be heating.
    */
   if (ctx->pwm_current)
-    new_duration = time_chunk * (15 - ctx->pwm_level);
+    new_duration = time_chunk * (127 - ctx->pwm_level);
 
   /*
    * If we were not heating, we calculate for
@@ -317,7 +300,7 @@ do_pwm_work_(furnace_context_t *ctx)
     return;
   }
 
-  if (ctx->pwm_level == 15) {
+  if (ctx->pwm_level == 127) {
     ctx->pwm_current = 1;
     return;
   }
@@ -350,7 +333,6 @@ main_work_loop(void)
     const bool deadline_met = get_absolute_time() > ctx->update_deadline;
 
     do_pwm_work(ctx);
-    do_thermocouple_work(ctx, deadline_met);
     do_tcp_work(ctx, deadline_met);
 
     if (deadline_met)
@@ -375,12 +357,6 @@ main_(void)
     return 1;
   } else {
     DEBUG_printf("Connected.\n");
-  }
-
-  const int max31856_init_status = max31856_init();
-  if (max31856_init_status) {
-    DEBUG_printf("max31856 init failed with %d\n", max31856_init_status);
-    return max31856_init_status;
   }
 
   const int ret = main_work_loop();
