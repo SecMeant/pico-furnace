@@ -13,6 +13,7 @@
 
 #include "spi_config.h"
 #include "max31856.h"
+#include "pid.h"
 
 #define TCP_PORT        4242
 #define DEBUG_printf    printf
@@ -35,9 +36,9 @@ typedef struct {
 
   /*
    * Tells for how big chunk of a second furnace should be heating.
-   * Each second is divided into 50 equal chunks.
+   * Each second is divided into 255 equal chunks.
    * For pwm_level number of chunks each second we will enable the heating.
-   * For 10-pwm_level number of chunks each second we will disable the heating.
+   * For 255-pwm_level number of chunks each second we will disable the heating.
    *
    * pwm_current tells in which mode we are right now.
    * 1 - heating
@@ -49,9 +50,10 @@ typedef struct {
    *
    * TODO: Handle pwm_deadline overflow. Should we handle it?
    */
-  uint64_t pwm_level    : 7;
+  struct pid_ctx *pid;
+  uint64_t pwm_level    : 8;
   uint64_t pwm_current  : 1;
-  uint64_t pwm_deadline : 59;
+  uint64_t pwm_deadline : 55;
 } furnace_context_t;
 
 int max31856_init(void);
@@ -87,9 +89,9 @@ tcp_server_close(furnace_context_t* ctx)
 
 err_t
 tcp_server_send_data(furnace_context_t* ctx,
-                     struct tcp_pcb*    tpcb,
-                     const uint8_t*     data,
-                     u16_t              size)
+    struct tcp_pcb*    tpcb,
+    const uint8_t*     data,
+    u16_t              size)
 {
   return tcp_write(tpcb, data, size, TCP_WRITE_FLAG_COPY);
 }
@@ -118,7 +120,9 @@ err_t
 tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
 {
   furnace_context_t *ctx = (furnace_context_t*)ctx_;
-  unsigned arg_pwm;
+  unsigned arg_temp;
+  unsigned _p, i, d;
+  unsigned open;
 
   if (!p) {
     tcp_server_close(ctx);
@@ -134,19 +138,40 @@ tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
 
   if (memcmp(ctx->tcp.recv_buffer, "reboot", 6) == 0) {
     reset_usb_boot(0,0);
-  } else if (strncmp(ctx->tcp.recv_buffer, "pwm\n", 4) == 0) {
-      char msg[16];
-      const size_t msg_len = snprintf(msg, sizeof(msg), "pwm = %d\r\n", ctx->pwm_level);
-      tcp_server_send_data(ctx, tpcb, msg, msg_len);
-  } else if (sscanf(ctx->tcp.recv_buffer, "pwm %u", &arg_pwm) == 1) {
-    if (arg_pwm > 127) {
-      const char msg[] = "pwm argument too big!\r\n";
+  } else if (strncmp(ctx->tcp.recv_buffer, "temp\n", 5) == 0) {
+    char msg[16];
+    const size_t msg_len = snprintf(msg, sizeof(msg), "temp = %u\r\n", ctx->pid->des_value);
+    tcp_server_send_data(ctx, tpcb, msg, msg_len);
+    DEBUG_printf("temp = %u\r\n", ctx->pid->des_value);
+  } else if (sscanf(ctx->tcp.recv_buffer, "temp %u", &arg_temp) == 1) {
+    if (arg_temp > MAX_TEMP) {
+      const char msg[] = "temp argument too big!\r\n";
       const size_t msg_len = sizeof(msg)-1;
       tcp_server_send_data(ctx, tpcb, msg, msg_len);
     } else {
-      ctx->pwm_level = arg_pwm;
+      ctx->pid->des_value = arg_temp;
+    }
+  } else if (sscanf(ctx->tcp.recv_buffer, "pid %u,%u,%u", &_p, &i, &d) == 3){
+    ctx->pid->p_const = _p;
+    ctx->pid->i_const = i;
+    ctx->pid->d_const = d;
+    ctx->pid->in_falling_mode = false; 
+  } else if(strncmp(ctx->tcp.recv_buffer, "pwm\n", 4) == 0){
+    char msg[16];
+    const size_t msg_len = snprintf(msg, sizeof(msg), "pwm = %u\r\n", ctx->pwm_level);
+    tcp_server_send_data(ctx, tpcb, msg, msg_len);
+  } else if(strncmp(ctx->tcp.recv_buffer, "get\n", 4) == 0){
+    char msg[32];
+    const size_t msg_len = snprintf(msg, sizeof(msg), "p = %u, i = %u, d = %u\r\n", ctx->pid->p_const, ctx->pid->i_const, ctx->pid->d_const);
+    tcp_server_send_data(ctx, tpcb, msg, msg_len);
+  } else if(sscanf(ctx->tcp.recv_buffer, "open %u", &open) == 1){
+    if(open == 0){
+      ctx->pid->is_open = false;
+    }else if(open == 1){
+      ctx->pid->is_open = true;
     }
   }
+
 
   DEBUG_printf("tcp_server_recv: %.*s\n", p->tot_len, ctx->tcp.recv_buffer);
 
@@ -192,8 +217,8 @@ tcp_server_open(void* ctx_)
   furnace_context_t *ctx = (furnace_context_t*)ctx_;
 
   DEBUG_printf("Starting server at %s on port %u\n",
-               ip4addr_ntoa(netif_ip4_addr(netif_list)),
-               TCP_PORT);
+      ip4addr_ntoa(netif_ip4_addr(netif_list)),
+      TCP_PORT);
 
   struct tcp_pcb* pcb = tcp_new_ip_type(IPADDR_TYPE_ANY);
   if (!pcb) {
@@ -251,6 +276,36 @@ do_tcp_work(furnace_context_t *ctx, bool deadline_met)
       tcp_server_close(ctx);
     }
   }
+  if (ctx->tcp.client_pcb && deadline_met) {
+    const int temperature_str_len = snprintf(
+      temperature_str,
+      sizeof(temperature_str),
+      "%d\n",
+      ctx->cur_temp
+    );
+
+    tcp_server_send_data(
+      ctx,
+      ctx->tcp.client_pcb,
+      (uint8_t*)temperature_str,
+      temperature_str_len
+    );
+
+    char pwm_str[32];
+    const int pwm_str_len = snprintf(pwm_str, sizeof(pwm_str), "desired: %u  actual :%u pwm\r\n", ctx->pid->des_pwm, ctx->pwm_level);
+    tcp_server_send_data(
+      ctx,
+      ctx->tcp.client_pcb,
+      (uint8_t*)pwm_str,
+      pwm_str_len
+    );
+  }
+
+  if (ctx->pid->in_falling_mode && deadline_met){
+    const char msg[] = "Temperature overshoot, cooling down, to resume change pid constants\n";
+    const size_t msg_len = sizeof(msg)-1;
+    tcp_server_send_data(ctx, ctx->tcp.client_pcb, (uint8_t*)msg, msg_len);
+  }
 }
 
 void
@@ -263,8 +318,8 @@ do_pwm_work_maybe_switch(furnace_context_t *ctx)
   if (current_time < current_deadline)
     return;
 
-  /* Divide 1000 microseconds into 127 equal chunks. */
-  const absolute_time_t time_chunk = 1000 / 127;
+  /* Divide 1000 microseconds into 255 equal chunks. */
+  const absolute_time_t time_chunk = 1000 / 255;
 
   absolute_time_t new_duration;
 
@@ -273,7 +328,7 @@ do_pwm_work_maybe_switch(furnace_context_t *ctx)
    * how long we will now not be heating.
    */
   if (ctx->pwm_current)
-    new_duration = time_chunk * (127 - ctx->pwm_level);
+    new_duration = time_chunk * (255 - ctx->pwm_level);
 
   /*
    * If we were not heating, we calculate for
@@ -300,7 +355,7 @@ do_pwm_work_(furnace_context_t *ctx)
     return;
   }
 
-  if (ctx->pwm_level == 127) {
+  if (ctx->pwm_level == 255) {
     ctx->pwm_current = 1;
     return;
   }
@@ -316,6 +371,15 @@ do_pwm_work(furnace_context_t *ctx)
   gpio_put(FURNACE_FIRE_PIN, ctx->pwm_current);
 }
 
+void
+do_pid_work(furnace_context_t *ctx, bool deadline_met){
+  if(deadline_met){
+    if(!ctx->pid->is_open){
+      ctx->pwm_level = calculate_pwm(ctx->pid, ctx->cur_temp);
+    }
+  }
+}
+
 int
 main_work_loop(void)
 {
@@ -327,18 +391,24 @@ main_work_loop(void)
     return 1;
   }
 
+  ctx->pid = init_pid(1, 3, 2, 0);
+
   cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
 
   while (1) {
     const bool deadline_met = get_absolute_time() > ctx->update_deadline;
 
     do_pwm_work(ctx);
+    do_thermocouple_work(ctx, deadline_met);
     do_tcp_work(ctx, deadline_met);
+    do_pid_work(ctx, deadline_met);
 
     if (deadline_met)
       ctx->update_deadline = make_timeout_time_ms(1000);
+    
   }
 
+  free(ctx->pid);
   free(ctx);
 
   return 0;
@@ -357,6 +427,12 @@ main_(void)
     return 1;
   } else {
     DEBUG_printf("Connected.\n");
+  }
+
+  const int max31856_init_status = max31856_init();
+  if (max31856_init_status) {
+    DEBUG_printf("max31856 init failed with %d\n", max31856_init_status);
+    return max31856_init_status;
   }
 
   const int ret = main_work_loop();
