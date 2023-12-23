@@ -122,7 +122,7 @@ tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
   furnace_context_t *ctx = (furnace_context_t*)ctx_;
   unsigned arg_temp;
   unsigned _p, i, d;
-  unsigned open;
+  unsigned open, safeguard;
 
   if (!p) {
     tcp_server_close(ctx);
@@ -155,7 +155,6 @@ tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
     ctx->pid->p_const = _p;
     ctx->pid->i_const = i;
     ctx->pid->d_const = d;
-    ctx->pid->in_falling_mode = false; 
   } else if(strncmp(ctx->tcp.recv_buffer, "pwm\n", 4) == 0){
     char msg[16];
     const size_t msg_len = snprintf(msg, sizeof(msg), "pwm = %u\r\n", ctx->pwm_level);
@@ -169,6 +168,20 @@ tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
       ctx->pid->is_open = false;
     }else if(open == 1){
       ctx->pid->is_open = true;
+    } else {
+      const char msg[] = "open argument not valid, insert 0 or 1\r\n";
+      const size_t msg_len = sizeof(msg) -1;
+      tcp_server_send_data(ctx, tpcb, msg, msg_len);
+    }
+  } else if(sscanf(ctx->tcp.recv_buffer, "safeguard %u", &safeguard) == 1){
+    if(safeguard == 0){
+      ctx->pid->safeguard_enabled = false;
+    }else if(safeguard == 1){
+      ctx->pid->safeguard_enabled = true;
+    } else {
+      const char msg[] = "safeguard argument not valid, insert 0 or 1\r\n";
+      const size_t msg_len = sizeof(msg) -1;
+      tcp_server_send_data(ctx, tpcb, msg, msg_len);
     }
   }
 
@@ -300,12 +313,6 @@ do_tcp_work(furnace_context_t *ctx, bool deadline_met)
       pwm_str_len
     );
   }
-
-  if (ctx->pid->in_falling_mode && deadline_met){
-    const char msg[] = "Temperature overshoot, cooling down, to resume change pid constants\n";
-    const size_t msg_len = sizeof(msg)-1;
-    tcp_server_send_data(ctx, ctx->tcp.client_pcb, (uint8_t*)msg, msg_len);
-  }
 }
 
 void
@@ -375,7 +382,7 @@ void
 do_pid_work(furnace_context_t *ctx, bool deadline_met){
   if(deadline_met){
     if(!ctx->pid->is_open){
-      ctx->pwm_level = calculate_pwm(ctx->pid, ctx->cur_temp);
+      ctx->pwm_level = calculate_pid(ctx->pid, ctx->cur_temp);
     }
   }
 }

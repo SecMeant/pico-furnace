@@ -3,13 +3,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-struct pid_ctx *init_pid(unsigned p_const,unsigned i_const,unsigned d_const, int temp){
-  struct pid_ctx *pid = (struct pid_ctx *)malloc(sizeof(struct pid_ctx));
-  if(!pid){
-    printf("Failed to alocate pid struct\n");
-    exit(1);
-  }
-
+void clear_memory(struct pid_ctx *pid, int temp){
   pid->err_count = 0;
   pid->pwm_count = 0;
 
@@ -20,14 +14,26 @@ struct pid_ctx *init_pid(unsigned p_const,unsigned i_const,unsigned d_const, int
   for(int i=0; i<ERR_MEM_SIZE; i++){
     pid->err_mem[i] = 0;
   }
+
   pid->err_mem[pid->err_count] = temp;
+}
+
+struct pid_ctx *init_pid(unsigned p_const,unsigned i_const,unsigned d_const, int temp){
+  struct pid_ctx *pid = (struct pid_ctx *)malloc(sizeof(struct pid_ctx));
+  if(!pid){
+    printf("Failed to alocate pid struct\n");
+    exit(1);
+  }
+
+  clear_memory(pid, temp);
 
   pid->p_const   = p_const;
   pid->i_const   = i_const;
   pid->d_const   = d_const;
 
   pid->des_value = temp;
-  pid->in_falling_mode = false;
+  pid->is_open = false;
+  pid->safeguard_enabled = true;
 
   return pid;
 }
@@ -36,24 +42,8 @@ uint8_t calculate_pwm(struct pid_ctx *pid, int measure){
   int pwm_val;
 
   int err = pid->des_value - measure;
-  if(pid->in_falling_mode){
-    pid->pwm_count = (pid->pwm_count +1)%PWM_MEM_SIZE;
-    int pwm_ = pid->last_pwms[(pid->pwm_count - 3)%PWM_MEM_SIZE] - 1;
-    if(pwm_ > MAX_PWM){
-      pwm_ = MAX_PWM;
-    }
-    if(pwm_ < 0){
-      pwm_ = 0;
-    }
-    pid->last_pwms[pid->pwm_count] =  (uint8_t)pwm_;
-    return (uint8_t) pwm_;
-  }
-
-  if(err <= -50){
-    pid->in_falling_mode = true;
-  }
-
   int err_sum = 0;
+
 
   for(int i=0; i<ERR_MEM_SIZE; i++){
     err_sum += pid->err_mem[i];
@@ -80,13 +70,35 @@ uint8_t calculate_pwm(struct pid_ctx *pid, int measure){
   pid->des_pwm = pwm;
 
   pid->pwm_count = (pid->pwm_count + 1)%PWM_MEM_SIZE;
-  if(pwm - pid->last_pwms[pid->pwm_count] >= 5){
-    pwm = pid->last_pwms[pid->pwm_count] + 5;
-    pid->last_pwms[pid->pwm_count] += 5;
-    return pwm;
-  }
-
   pid->last_pwms[pid->pwm_count] =  pwm;
 
   return pwm;
+}
+
+uint8_t safeguard(struct pid_ctx *pid, uint8_t des_pwm, int measure){
+  if(des_pwm - pid->last_pwms[(pid->pwm_count + 1)%PWM_MEM_SIZE] >= 5){
+    pid->last_pwms[pid->pwm_count] = pid->last_pwms[(pid->pwm_count + 1)%PWM_MEM_SIZE] + 5;
+    return pid->last_pwms[pid->pwm_count];
+  }
+  
+  if(des_pwm - pid->last_pwms[(pid->pwm_count + 1)%PWM_MEM_SIZE] <= -5){
+    pid->last_pwms[pid->pwm_count] = pid->last_pwms[(pid->pwm_count + 1)%PWM_MEM_SIZE] - 5;
+    return pid->last_pwms[pid->pwm_count];
+  }
+
+  if(pid->des_value - measure <= -20){
+    pid->last_pwms[pid->pwm_count] *= 0.5f;
+    return pid->last_pwms[pid->pwm_count];
+  }
+
+  return des_pwm;
+}
+
+uint8_t calculate_pid(struct pid_ctx *pid, int measure){
+  uint8_t new_pwm = calculate_pwm(pid, measure);
+
+  if(pid->safeguard_enabled)
+    new_pwm = safeguard(pid, new_pwm, measure);
+
+  return new_pwm;
 }
