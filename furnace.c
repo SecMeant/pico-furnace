@@ -359,6 +359,25 @@ do_tcp_work(furnace_context_t *ctx, bool deadline_met)
   }
 
   if (ctx->tcp.client_pcb && deadline_met) {
+    const int temperature_str_len = snprintf(
+      temperature_str,
+      sizeof(temperature_str),
+      "temp:%d, pwm:%u\n",
+      ctx->cur_temp,
+      ctx->pwm_level
+    );
+
+    tcp_server_send_data(
+      ctx,
+      ctx->tcp.client_pcb,
+      (uint8_t*)temperature_str,
+      temperature_str_len
+    );
+  }
+
+}
+
+  if (ctx->tcp.client_pcb && deadline_met) {
     const int temperature_str_len = format_status(temperature_str, ctx);
 
     tcp_server_send_data(
