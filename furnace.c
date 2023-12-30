@@ -222,6 +222,7 @@ static err_t
 tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
 {
   furnace_context_t *ctx = (furnace_context_t*)ctx_;
+  unsigned arg;
 
   if (!p) {
     tcp_server_close(ctx);
@@ -482,6 +483,56 @@ do_stdio_work(furnace_context_t* ctx, bool deadline_met)
     *ctx->stdio.parser = c;
     ctx->stdio.parser++;
   }
+}
+
+static inline int
+sgn(int val_1, int val_2)
+{
+  if(val_1 > val_2)
+    return -1;
+  return 1;
+}
+
+static inline uint8_t
+clamp_u8(int min, int max, int val)
+{
+  uint8_t value = (uint8_t)val;
+
+  if(val < min)
+    value = min;
+
+  if(val > max)
+    value = max;
+
+  return value;
+}
+
+static void
+do_pilot_work(furnace_context_t *ctx)
+{
+  const bool deadline_met = get_absolute_time() > ctx->pilot.pilot_deadline;
+
+  if(deadline_met && ctx->pilot.is_enabled){
+    const int diff = ctx->cur_temp - ctx->pilot.last_temp;
+    const int sign = sgn(ctx->cur_temp, ctx->pilot.des_temp);
+    unsigned pwm = ctx->pwm_level;
+
+    ctx->pilot.last_temp = ctx->cur_temp;
+    ctx->pilot.pilot_deadline = make_timeout_time_ms(15000);
+
+    if(diff >= -5 && diff <= 1)
+      pwm += sign;
+
+    set_pwm_safe(ctx, pwm);
+  }
+}
+
+void
+init_pilot(furnace_context_t *ctx)
+{
+  ctx->pilot.des_temp = 0;
+  ctx->pilot.last_temp = 0;
+  ctx->pilot.is_enabled = false;
 }
 
 int
