@@ -29,13 +29,21 @@ typedef struct {
 } tcp_context_t;
 
 typedef struct {
+  absolute_time_t pilot_deadline;
+  bool            is_enabled;
+  int             des_temp;
+  int             last_temp;
+} pilot_context_t;
+
+typedef struct {
   absolute_time_t update_deadline;
   int             cur_temp;
   tcp_context_t   tcp;
 
+  pilot_context_t       pilot;
   /*
    * Tells for how big chunk of a second furnace should be heating.
-   * Each second is divided into 15 equal chunks.
+   * Each second is divided into 31 equal chunks.
    * For pwm_level number of chunks each second we will enable the heating.
    * For 10-pwm_level number of chunks each second we will disable the heating.
    *
@@ -49,12 +57,42 @@ typedef struct {
    *
    * TODO: Handle pwm_deadline overflow. Should we handle it?
    */
-  uint64_t pwm_level    : 4;
+  uint64_t pwm_level    : 5;
   uint64_t pwm_current  : 1;
-  uint64_t pwm_deadline : 59;
+  uint64_t pwm_deadline : 58;
 } furnace_context_t;
 
-int max31856_init(void);
+static inline unsigned 
+get_max_pwm()
+{
+  furnace_context_t ctx;
+  unsigned long max = -1;
+
+  ctx.pwm_level = max;
+  return ctx.pwm_level;
+}
+
+#define MAX_PWM         get_max_pwm()
+
+int
+max31856_init(void);
+
+static inline int
+set_pwm_safe(furnace_context_t *ctx, unsigned new_pwm)
+{
+  uint8_t pwm_backup = ctx->pwm_level;
+
+  furnace_context_t ctx_max;
+  unsigned long max = -1;
+  ctx_max.pwm_level = max;
+
+  ctx->pwm_level = new_pwm;
+  if(new_pwm > (unsigned) ctx_max.pwm_level){
+    ctx->pwm_level = pwm_backup;
+    return 1;
+  }
+  return 0;
+}
 
 static err_t
 tcp_server_close(furnace_context_t* ctx)
@@ -118,7 +156,7 @@ err_t
 tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
 {
   furnace_context_t *ctx = (furnace_context_t*)ctx_;
-  unsigned arg_pwm;
+  unsigned arg;
 
   if (!p) {
     tcp_server_close(ctx);
@@ -138,14 +176,36 @@ tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
       char msg[16];
       const size_t msg_len = snprintf(msg, sizeof(msg), "pwm = %d\r\n", ctx->pwm_level);
       tcp_server_send_data(ctx, tpcb, msg, msg_len);
-  } else if (sscanf(ctx->tcp.recv_buffer, "pwm %u", &arg_pwm) == 1) {
-    if (arg_pwm > 15) {
+  } else if (sscanf(ctx->tcp.recv_buffer, "pwm %u", &arg) == 1) {
+    if(set_pwm_safe(ctx, arg) == 1){
       const char msg[] = "pwm argument too big!\r\n";
       const size_t msg_len = sizeof(msg)-1;
       tcp_server_send_data(ctx, tpcb, msg, msg_len);
-    } else {
-      ctx->pwm_level = arg_pwm;
     }
+  } else if (strncmp(ctx->tcp.recv_buffer, "auto\n", 5) == 0){
+      char msg[16];
+      const size_t msg_len = snprintf(msg, sizeof(msg), "auto = %d\r\n", ctx->pilot.is_enabled);
+      tcp_server_send_data(ctx, tpcb, msg, msg_len);
+  } else if (sscanf(ctx->tcp.recv_buffer, "auto %u", &arg) == 1) {
+    if(arg > 1){
+      const char msg[] = "auto argument needs to be 0 or 1\r\n";
+      const size_t msg_len = sizeof(msg)-1;
+      tcp_server_send_data(ctx, tpcb, msg, msg_len);
+    }else{
+      ctx->pilot.is_enabled = arg;
+    }
+  } else if (sscanf(ctx->tcp.recv_buffer, "temp %u", &arg) == 1){
+    if(arg > 1250){
+      const char msg[] = "temp argument too big!\r\n";
+      const size_t msg_len = sizeof(msg)-1;
+      tcp_server_send_data(ctx, tpcb, msg, msg_len);
+    } else {
+      ctx->pilot.des_temp = arg;
+    }
+  } else if (strncmp(ctx->tcp.recv_buffer, "temp\n", 5) == 0){
+    char msg[16];
+    const size_t msg_len = snprintf(msg, sizeof(msg), "temp = %d\r\n", ctx->pilot.des_temp);
+    tcp_server_send_data(ctx, tpcb, msg, msg_len);
   }
 
   DEBUG_printf("tcp_server_recv: %.*s\n", p->tot_len, ctx->tcp.recv_buffer);
@@ -290,7 +350,7 @@ do_pwm_work_maybe_switch(furnace_context_t *ctx)
    * how long we will now not be heating.
    */
   if (ctx->pwm_current)
-    new_duration = time_chunk * (15 - ctx->pwm_level);
+    new_duration = time_chunk * (MAX_PWM - ctx->pwm_level);
 
   /*
    * If we were not heating, we calculate for
@@ -317,7 +377,7 @@ do_pwm_work_(furnace_context_t *ctx)
     return;
   }
 
-  if (ctx->pwm_level == 15) {
+  if (ctx->pwm_level == MAX_PWM) {
     ctx->pwm_current = 1;
     return;
   }
@@ -333,6 +393,56 @@ do_pwm_work(furnace_context_t *ctx)
   gpio_put(FURNACE_FIRE_PIN, ctx->pwm_current);
 }
 
+static inline int
+sgn(int val_1, int val_2)
+{
+  if(val_1 > val_2)
+    return -1;
+  return 1;
+}
+
+static inline uint8_t
+clamp_u8(int min, int max, int val)
+{
+  uint8_t value = (uint8_t)val;
+
+  if(val < min)
+    value = min;
+
+  if(val > max)
+    value = max;
+
+  return value;
+}
+
+static void
+do_pilot_work(furnace_context_t *ctx)
+{
+  const bool deadline_met = get_absolute_time() > ctx->pilot.pilot_deadline;
+
+  if(deadline_met && ctx->pilot.is_enabled){
+    const int diff = ctx->cur_temp - ctx->pilot.last_temp;
+    const int sign = sgn(ctx->cur_temp, ctx->pilot.des_temp);
+    unsigned pwm = ctx->pwm_level;
+
+    ctx->pilot.last_temp = ctx->cur_temp;
+    ctx->pilot.pilot_deadline = make_timeout_time_ms(15000);
+
+    if(diff >= -5 && diff <= 1)
+      pwm += sign;
+
+    set_pwm_safe(ctx, pwm);
+  }
+}
+
+void
+init_pilot(furnace_context_t *ctx)
+{
+  ctx->pilot.des_temp = 0;
+  ctx->pilot.last_temp = 0;
+  ctx->pilot.is_enabled = false;
+}
+
 int
 main_work_loop(void)
 {
@@ -344,6 +454,8 @@ main_work_loop(void)
     return 1;
   }
 
+  init_pilot(ctx);
+
   cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
 
   while (1) {
@@ -352,6 +464,7 @@ main_work_loop(void)
     do_pwm_work(ctx);
     do_thermocouple_work(ctx, deadline_met);
     do_tcp_work(ctx, deadline_met);
+    do_pilot_work(ctx);
 
     if (deadline_met)
       ctx->update_deadline = make_timeout_time_ms(1000);
