@@ -164,6 +164,8 @@ tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
   }
 
   tcp_server_recv_(ctx, tpcb, p);
+  //We are expecting only strings, we can manually terminate the string
+  ctx->tcp.recv_buffer[p->tot_len] = '\0';
 
   pbuf_free(p);
 
@@ -300,7 +302,7 @@ do_thermocouple_work(furnace_context_t *ctx, bool deadline_met)
 void
 do_tcp_work(furnace_context_t *ctx, bool deadline_met)
 {
-  char temperature_str[16];
+  char temperature_str[32];
 
   cyw43_arch_poll();
 
@@ -316,8 +318,9 @@ do_tcp_work(furnace_context_t *ctx, bool deadline_met)
     const int temperature_str_len = snprintf(
       temperature_str,
       sizeof(temperature_str),
-      "%d\n",
-      ctx->cur_temp
+      "temp:%d, pwm:%u\n",
+      ctx->cur_temp,
+      ctx->pwm_level
     );
 
     tcp_server_send_data(
