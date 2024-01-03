@@ -23,3 +23,11 @@ export PICO_SDK_PATH=<path to pico sdk>
 export PICO_EXTRAS_PATH=<path to pico extras>
 make
 ```
+
+## Flashing the binary
+
+Connect pico W board USB while pressing the boot button and run:
+
+```console
+make flash
+```
