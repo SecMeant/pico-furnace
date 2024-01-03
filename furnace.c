@@ -152,11 +152,66 @@ tcp_server_recv_(furnace_context_t *ctx, struct tcp_pcb* tpcb, struct pbuf* p)
   tcp_recved(tpcb, p->tot_len);
 }
 
-err_t
+static void
+command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const char*, const size_t))
+{
+  unsigned arg;
+
+  if (memcmp(buffer, "reboot", 6) == 0) {
+    reset_usb_boot(0,0);
+  } else if (strncmp(buffer, "pwm\n", 4) == 0) {
+      char msg[16];
+      const size_t msg_len = snprintf(msg, sizeof(msg), "pwm = %d\r\n", ctx->pwm_level);
+      feedback(msg, msg_len);
+  } else if (sscanf(buffer, "pwm %u", &arg) == 1) {
+    if (set_pwm_safe(ctx, arg) == 1){
+      const char msg[] = "pwm argument too big!\r\n";
+      const size_t msg_len = sizeof(msg)-1;
+      feedback(msg, msg_len);
+    }
+  } else if (strncmp(buffer, "auto\n", 5) == 0) {
+      char msg[16];
+      const size_t msg_len = snprintf(msg, sizeof(msg), "auto = %d\r\n", ctx->pilot.is_enabled);
+      feedback(msg, msg_len);
+  } else if (sscanf(buffer, "auto %u", &arg) == 1) {
+    if (arg > 1) {
+      const char msg[] = "auto argument needs to be 0 or 1\r\n";
+      const size_t msg_len = sizeof(msg)-1;
+      feedback(msg, msg_len);
+    } else {
+      ctx->pilot.is_enabled = arg;
+    }
+  } else if (sscanf(buffer, "temp %u", &arg) == 1) {
+    if (arg > 1250) {
+      const char msg[] = "temp argument too big!\r\n";
+      const size_t msg_len = sizeof(msg)-1;
+      feedback(msg, msg_len);
+    } else {
+      ctx->pilot.des_temp = arg;
+    }
+  } else if (strncmp(buffer, "temp\n", 5) == 0) {
+    char msg[16];
+    const size_t msg_len = snprintf(msg, sizeof(msg), "temp = %d\r\n", ctx->pilot.des_temp);
+    feedback(msg, msg_len);
+  }
+}
+
+static void
+tcp_command_handler(furnace_context_t* ctx, struct tcp_pcb* tpcb)
+{
+  void
+  send(const char* msg, const size_t msg_len)
+  {
+    tcp_server_send_data(ctx, tpcb, msg, msg_len);
+  }
+
+  command_handler(ctx, ctx->tcp.recv_buffer, &send);
+}
+
+static err_t
 tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
 {
   furnace_context_t *ctx = (furnace_context_t*)ctx_;
-  unsigned arg;
 
   if (!p) {
     tcp_server_close(ctx);
@@ -172,45 +227,7 @@ tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
   // Echo back for debugging
   // tcp_server_send_data(ctx, tpcb, ctx->recv_buffer, ctx->recv_len);
 
-  if (memcmp(ctx->tcp.recv_buffer, "reboot", 6) == 0) {
-    reset_usb_boot(0,0);
-  } else if (strncmp(ctx->tcp.recv_buffer, "pwm\n", 4) == 0) {
-      char msg[16];
-      const size_t msg_len = snprintf(msg, sizeof(msg), "pwm = %d\r\n", ctx->pwm_level);
-      tcp_server_send_data(ctx, tpcb, msg, msg_len);
-  } else if (sscanf(ctx->tcp.recv_buffer, "pwm %u", &arg) == 1) {
-    if(set_pwm_safe(ctx, arg) == 1){
-      const char msg[] = "pwm argument too big!\r\n";
-      const size_t msg_len = sizeof(msg)-1;
-      tcp_server_send_data(ctx, tpcb, msg, msg_len);
-    } else {
-      ctx->pilot.is_enabled = 0;
-    }
-  } else if (strncmp(ctx->tcp.recv_buffer, "auto\n", 5) == 0){
-      char msg[16];
-      const size_t msg_len = snprintf(msg, sizeof(msg), "auto = %d\r\n", ctx->pilot.is_enabled);
-      tcp_server_send_data(ctx, tpcb, msg, msg_len);
-  } else if (sscanf(ctx->tcp.recv_buffer, "auto %u", &arg) == 1) {
-    if(arg > 1){
-      const char msg[] = "auto argument needs to be 0 or 1\r\n";
-      const size_t msg_len = sizeof(msg)-1;
-      tcp_server_send_data(ctx, tpcb, msg, msg_len);
-    }else{
-      ctx->pilot.is_enabled = arg;
-    }
-  } else if (sscanf(ctx->tcp.recv_buffer, "temp %u", &arg) == 1){
-    if(arg > 1250){
-      const char msg[] = "temp argument too big!\r\n";
-      const size_t msg_len = sizeof(msg)-1;
-      tcp_server_send_data(ctx, tpcb, msg, msg_len);
-    } else {
-      ctx->pilot.des_temp = arg;
-    }
-  } else if (strncmp(ctx->tcp.recv_buffer, "temp\n", 5) == 0){
-    char msg[16];
-    const size_t msg_len = snprintf(msg, sizeof(msg), "temp = %d\r\n", ctx->pilot.des_temp);
-    tcp_server_send_data(ctx, tpcb, msg, msg_len);
-  }
+  tcp_command_handler(ctx, tpcb);
 
   DEBUG_printf("tcp_server_recv: %.*s\n", p->tot_len, ctx->tcp.recv_buffer);
 
