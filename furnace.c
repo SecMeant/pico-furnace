@@ -30,6 +30,8 @@
 #define FURNACE_FIRE_PWM_SLICE pwm_gpio_to_slice_num(FURNACE_FIRE_PIN)
 #define FURNACE_FIRE_PWM_CHANNEL pwm_gpio_to_channel(FURNACE_FIRE_PIN)
 
+#define MAX_TEMP 1250
+
 typedef struct {
   struct tcp_pcb* server_pcb;
   struct tcp_pcb* client_pcb;
@@ -552,6 +554,61 @@ init_pilot(furnace_context_t *ctx)
   ctx->pilot.des_temp = 0;
   ctx->pilot.last_temp = 0;
   ctx->pilot.is_enabled = false;
+}
+
+static void
+init_stdio(furnace_context_t* ctx)
+{
+  ctx->stdio.parser = ctx->stdio.buffer;
+  memset(&ctx->stdio.buffer, 0, BUF_SIZE);
+}
+
+static void
+reset_stdio_data(furnace_context_t* ctx)
+{
+  memset(&ctx->stdio.buffer, 0, BUF_SIZE);
+  ctx->stdio.parser = ctx->stdio.buffer;
+}
+
+static void
+stdio_command_handler(furnace_context_t* ctx)
+{
+  void
+  send_stdio(const char* msg, const size_t msg_len)
+  {
+    printf(msg);
+  }
+
+  command_handler(ctx, ctx->stdio.buffer, &send_stdio);
+}
+
+void
+do_stdio_work(furnace_context_t* ctx)
+{
+  while(1) {
+    uint8_t c = getchar_timeout_us(0);
+
+    if(c == (uint8_t) PICO_ERROR_TIMEOUT) return;
+
+    if(ctx->stdio.parser == ctx->stdio.buffer + BUF_SIZE){
+      printf("\nLines longer than %d are invalid!\nResetting stdio buffer.\n", BUF_SIZE);
+      reset_stdio_data(ctx);
+      return;
+    }
+
+    // User may change last sent character from lf to cr, vice versa or crlf
+    // Although, in parsing command, we do not care how user sent this
+    // and we are always putting '\n' at the end of command
+    if(c == '\n' || c == '\r') {
+      *ctx->stdio.parser = '\n';
+      stdio_command_handler(ctx);
+      reset_stdio_data(ctx);
+      return;
+    }
+
+    *ctx->stdio.parser = c;
+    ctx->stdio.parser++;
+  }
 }
 
 int
