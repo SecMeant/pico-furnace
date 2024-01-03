@@ -21,6 +21,8 @@
 /* GPIO for enabling and disabling heating of the furnace. */
 #define FURNACE_FIRE_PIN 21
 
+#define MAX_TEMP 1250
+
 typedef struct {
   struct tcp_pcb* server_pcb;
   struct tcp_pcb* client_pcb;
@@ -36,9 +38,15 @@ typedef struct {
 } pilot_context_t;
 
 typedef struct {
+  uint8_t  buffer[BUF_SIZE];
+  uint8_t* parser;
+} stdio_context_t;
+
+typedef struct {
   absolute_time_t update_deadline;
   int             cur_temp;
   tcp_context_t   tcp;
+  stdio_context_t stdio;
 
   pilot_context_t       pilot;
   /*
@@ -182,7 +190,7 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
       ctx->pilot.is_enabled = arg;
     }
   } else if (sscanf(buffer, "temp %u", &arg) == 1) {
-    if (arg > 1250) {
+    if (arg > MAX_TEMP) {
       const char msg[] = "temp argument too big!\r\n";
       const size_t msg_len = sizeof(msg)-1;
       feedback(msg, msg_len);
@@ -465,6 +473,61 @@ init_pilot(furnace_context_t *ctx)
   ctx->pilot.is_enabled = false;
 }
 
+static void
+init_stdio(furnace_context_t* ctx)
+{
+  ctx->stdio.parser = ctx->stdio.buffer;
+  memset(&ctx->stdio.buffer, 0, BUF_SIZE);
+}
+
+static void
+reset_stdio_data(furnace_context_t* ctx)
+{
+  memset(&ctx->stdio.buffer, 0, BUF_SIZE);
+  ctx->stdio.parser = ctx->stdio.buffer;
+}
+
+static void
+stdio_command_handler(furnace_context_t* ctx)
+{
+  void
+  send_stdio(const char* msg, const size_t msg_len)
+  {
+    printf(msg);
+  }
+
+  command_handler(ctx, ctx->stdio.buffer, &send_stdio);
+}
+
+void
+do_stdio_work(furnace_context_t* ctx)
+{
+  while(1) {
+    uint8_t c = getchar_timeout_us(0);
+
+    if(c == (uint8_t) PICO_ERROR_TIMEOUT) return;
+
+    if(ctx->stdio.parser == ctx->stdio.buffer + BUF_SIZE){
+      printf("\nLines longer than %d are invalid!\nResetting stdio buffer.\n", BUF_SIZE);
+      reset_stdio_data(ctx);
+      return;
+    }
+
+    // User may change last sent character from lf to cr, vice versa or crlf
+    // Although, in parsing command, we do not care how user sent this
+    // and we are always putting '\n' at the end of command
+    if(c == '\n' || c == '\r') {
+      *ctx->stdio.parser = '\n';
+      stdio_command_handler(ctx);
+      reset_stdio_data(ctx);
+      return;
+    }
+
+    *ctx->stdio.parser = c;
+    ctx->stdio.parser++;
+  }
+}
+
 int
 main_work_loop(void)
 {
@@ -477,6 +540,7 @@ main_work_loop(void)
   }
 
   init_pilot(ctx);
+  init_stdio(ctx);
 
   cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
 
@@ -486,6 +550,7 @@ main_work_loop(void)
     do_pwm_work(ctx);
     do_thermocouple_work(ctx, deadline_met);
     do_tcp_work(ctx, deadline_met);
+    do_stdio_work(ctx);
     do_pilot_work(ctx);
 
     if (deadline_met)
