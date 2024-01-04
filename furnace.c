@@ -345,8 +345,8 @@ do_pwm_work_maybe_switch(furnace_context_t *ctx)
   if (current_time < current_deadline)
     return;
 
-  /* Divide 1000 microseconds into 15 equal chunks. */
-  const absolute_time_t time_chunk = 1000 / 15;
+  /* Divide 1023 microseconds into MAX_PWM equal chunks. */
+  const absolute_time_t time_chunk = 1023 / MAX_PWM;
 
   absolute_time_t new_duration;
 
