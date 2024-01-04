@@ -203,6 +203,20 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
     char msg[16];
     const size_t msg_len = snprintf(msg, sizeof(msg), "temp = %d\r\n", ctx->pilot.des_temp);
     feedback(msg, msg_len);
+  } else if(memcmp(buffer, "help\n", 5) == 0) {
+    const char msg[] = "help             shows this message\n"
+                        "reboot           reboot device\n"
+                        "pwm <0;31>       sets pwm\n"
+                        "pwm              prints current pwm level\n"
+                        "temp <0;1250>    sets wanted temperature\n"
+                        "temp             shows current wanted temperature\n"
+                        "auto <0;1>       sets automatic pwm control, it is\n"
+                        "                 reaching temperature set by 'temp' command\n"
+                        "                 0 - off\n"
+                        "                 1 - on\n"
+                        "auto             shows current auto status\n";
+    const size_t msg_len = sizeof(msg)-1;
+    feedback(msg, msg_len);
   }
 }
 
