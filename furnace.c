@@ -165,6 +165,8 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
 {
   unsigned arg;
 
+  if (buffer[0] == '\n') return;
+
   if (memcmp(buffer, "reboot", 6) == 0) {
     reset_usb_boot(0,0);
   } else if (strncmp(buffer, "pwm\n", 4) == 0) {
