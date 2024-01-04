@@ -183,6 +183,8 @@ tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
       const char msg[] = "pwm argument too big!\r\n";
       const size_t msg_len = sizeof(msg)-1;
       tcp_server_send_data(ctx, tpcb, msg, msg_len);
+    } else {
+      ctx->pilot.is_enabled = 0;
     }
   } else if (strncmp(ctx->tcp.recv_buffer, "auto\n", 5) == 0){
       char msg[16];
