@@ -135,6 +135,7 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
       const char msg[] = "pwm argument too big!\r\n";
       const size_t msg_len = sizeof(msg)-1;
       feedback(msg, msg_len);
+      ctx->pilot.is_enabled = 0;
     }
   } else if (strncmp(buffer, "auto\n", 5) == 0) {
       char msg[16];
