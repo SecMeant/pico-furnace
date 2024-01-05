@@ -183,26 +183,17 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
     const size_t msg_len = get_logs(msg, ctx->log_bits);
     feedback(msg, msg_len);
   } else if(memcmp(buffer, "help\n", 5) == 0) {
-
-    const char msg[] = "help              \t\t shows this message\n"
-                        "reboot            \t\t reboot device\n"
-                        "pwm <0;50>        \t\t sets pwm\n"
-                        "pwm               \t\t prints current pwm level\n"
-                        "temp <0;1250>     \t\t sets wanted temperature\n"
-                        "temp              \t\t shows current wanted temperature\n"
-                        "auto <0;1>        \t\t sets automatic pwm control, it is\n"
-                        "                  \t\t reaching temperature set by 'temp' command\n"
-                        "                  \t\t\t 0 - off\n"
-                        "                  \t\t\t 1 - on\n"
-                        "auto              \t\t shows current auto status\n"
-                        "log <option> <0;1>\t\t sets output level on stdio\n"
-                        "                  \t\t\t options:\n"
-                        "                  \t\t\t\t server,\n"
-                        "                  \t\t\t\t thermocouple,\n"
-                        "                  \t\t\t\t basic\n"
-                        "                  \t\t\t 0 - off\n"
-                        "                  \t\t\t 1 - on\n"
-                        "log               \t\t prints names of turned on log options\n";
+    const char msg[] = "help             shows this message\n"
+                        "reboot           reboot device\n"
+                        "pwm <0;50>       sets pwm\n"
+                        "pwm              prints current pwm level\n"
+                        "temp <0;1250>    sets wanted temperature\n"
+                        "temp             shows current wanted temperature\n"
+                        "auto <0;1>       sets automatic pwm control, it is\n"
+                        "                 reaching temperature set by 'temp' command\n"
+                        "                 0 - off\n"
+                        "                 1 - on\n"
+                        "auto             shows current auto status\n";
     const size_t msg_len = sizeof(msg)-1;
     feedback(msg, msg_len);
   }
@@ -364,9 +355,10 @@ do_tcp_work(furnace_context_t *ctx, bool deadline_met)
     const int temperature_str_len = snprintf(
       temperature_str,
       sizeof(temperature_str),
-      "temp:%d, pwm:%u\n",
+      "temp:%d, pwm:%u/%u\n",
       ctx->cur_temp,
-      ctx->pwm_level
+      ctx->pwm_level,
+      MAX_PWM
     );
 
     tcp_server_send_data(
