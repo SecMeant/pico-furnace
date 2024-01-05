@@ -459,7 +459,9 @@ main_work_loop(void)
   while (1) {
     const bool deadline_met = get_absolute_time() > ctx->update_deadline;
 
+#if CONFIG_THERMO
     do_thermocouple_work(ctx, deadline_met);
+#endif
     do_tcp_work(ctx, deadline_met);
     do_stdio_work(ctx);
     do_pilot_work(ctx);
@@ -488,11 +490,13 @@ main_(void)
     DEBUG_printf("Connected.\n");
   }
 
+#if CONFIG_THERMO
   const int max31856_init_status = max31856_init();
   if (max31856_init_status) {
     DEBUG_printf("max31856 init failed with %d\n", max31856_init_status);
     return max31856_init_status;
   }
+#endif
 
   const int ret = main_work_loop();
 

@@ -4,6 +4,10 @@ GREEN := $(ESC)[0;32m
 PURPLE := $(ESC)[0;35m
 ZERO := $(ESC)[0;0m
 
+CONFIG_THERMO := 1
+
+CFLAGS += -DCONFIG_THERMO=$(CONFIG_THERMO)
+
 all: build/ ninja
 
 wlan.ini:
@@ -21,7 +25,7 @@ checkenv_%:
 pico_sdk: checkenv_PICO_SDK_PATH checkenv_PICO_EXTRAS_PATH
 
 build/: ./configure_wifi.sh wlan.ini pico_sdk
-	./configure_wifi.sh
+	CFLAGS="$(CFLAGS)" ./configure_wifi.sh
 
 ninja: build/
 	ninja -C build/
