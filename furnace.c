@@ -370,7 +370,7 @@ do_pilot_work(furnace_context_t *ctx)
     ctx->pilot.last_temp = ctx->cur_temp;
     ctx->pilot.pilot_deadline = make_timeout_time_ms(15000);
 
-    if(diff >= -5 && diff <= 1)
+    if(sign*diff <= 1)
       pwm += sign;
 
     set_pwm_safe(ctx, pwm);
