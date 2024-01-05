@@ -20,6 +20,8 @@
 
 /* GPIO for enabling and disabling heating of the furnace. */
 #define FURNACE_FIRE_PIN 21
+#define FURNACE_FIRE_PWM_SLICE pwm_gpio_to_slice_num(FURNACE_FIRE_PIN)
+#define FURNACE_FIRE_PWM_CHANNEL pwm_gpio_to_channel(FURNACE_FIRE_PIN)
 
 #define MAX_TEMP 1250
 
@@ -49,58 +51,13 @@ typedef struct {
   stdio_context_t stdio;
 
   pilot_context_t       pilot;
-  /*
-   * Tells for how big chunk of a second furnace should be heating.
-   * Each second is divided into 31 equal chunks.
-   * For pwm_level number of chunks each second we will enable the heating.
-   * For 10-pwm_level number of chunks each second we will disable the heating.
-   *
-   * pwm_current tells in which mode we are right now.
-   * 1 - heating
-   * 0 - not heating
-   *
-   * pwm_deadline holds 59 most significant bits of timestamp at which we
-   * should switch heating state, ie. from heating to non-heating or from
-   * non-heating to heating.
-   *
-   * TODO: Handle pwm_deadline overflow. Should we handle it?
-   */
-  uint64_t pwm_level    : 5;
-  uint64_t pwm_current  : 1;
-  uint64_t pwm_deadline : 58;
+  uint8_t pwm_level;
 } furnace_context_t;
 
-static inline unsigned 
-get_max_pwm()
-{
-  furnace_context_t ctx;
-  unsigned long max = -1;
-
-  ctx.pwm_level = max;
-  return ctx.pwm_level;
-}
-
-#define MAX_PWM         get_max_pwm()
+#include "pwm.c"
 
 int
 max31856_init(void);
-
-static inline int
-set_pwm_safe(furnace_context_t *ctx, unsigned new_pwm)
-{
-  uint8_t pwm_backup = ctx->pwm_level;
-
-  furnace_context_t ctx_max;
-  unsigned long max = -1;
-  ctx_max.pwm_level = max;
-
-  ctx->pwm_level = new_pwm;
-  if(new_pwm > (unsigned) ctx_max.pwm_level){
-    ctx->pwm_level = pwm_backup;
-    return 1;
-  }
-  return 0;
-}
 
 static err_t
 tcp_server_close(furnace_context_t* ctx)
@@ -206,7 +163,7 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
   } else if(memcmp(buffer, "help\n", 5) == 0) {
     const char msg[] = "help             shows this message\n"
                         "reboot           reboot device\n"
-                        "pwm <0;31>       sets pwm\n"
+                        "pwm <0;50>       sets pwm\n"
                         "pwm              prints current pwm level\n"
                         "temp <0;1250>    sets wanted temperature\n"
                         "temp             shows current wanted temperature\n"
@@ -361,9 +318,10 @@ do_tcp_work(furnace_context_t *ctx, bool deadline_met)
     const int temperature_str_len = snprintf(
       temperature_str,
       sizeof(temperature_str),
-      "temp:%d, pwm:%u\n",
+      "temp:%d, pwm:%u/%u\n",
       ctx->cur_temp,
-      ctx->pwm_level
+      ctx->pwm_level,
+      MAX_PWM
     );
 
     tcp_server_send_data(
@@ -374,69 +332,6 @@ do_tcp_work(furnace_context_t *ctx, bool deadline_met)
     );
   }
 
-}
-
-void
-do_pwm_work_maybe_switch(furnace_context_t *ctx)
-{
-  /* Get current time and "unpack" current pwm switch deadline. */
-  const absolute_time_t current_time = get_absolute_time();
-  const absolute_time_t current_deadline = ctx->pwm_deadline << 5;
-
-  if (current_time < current_deadline)
-    return;
-
-  /* Divide 1023 microseconds into MAX_PWM equal chunks. */
-  const absolute_time_t time_chunk = 1023 / MAX_PWM;
-
-  absolute_time_t new_duration;
-
-  /*
-   * If we were heating, we calculate for
-   * how long we will now not be heating.
-   */
-  if (ctx->pwm_current)
-    new_duration = time_chunk * (MAX_PWM - ctx->pwm_level);
-
-  /*
-   * If we were not heating, we calculate for
-   * how long we will now be heating.
-   */
-  else
-    new_duration = time_chunk * (ctx->pwm_level);
-
-  /* Calculate new timestamp and discard bottom 5 bits - we don't care. */
-  new_duration += current_time;
-  new_duration >>= 5;
-
-  ctx->pwm_deadline = new_duration;
-  ctx->pwm_current = !ctx->pwm_current;
-
-  DEBUG_printf("HEAT: %d\n", (int) ctx->pwm_current);
-}
-
-void
-do_pwm_work_(furnace_context_t *ctx)
-{
-  if (ctx->pwm_level == 0) {
-    ctx->pwm_current = 0;
-    return;
-  }
-
-  if (ctx->pwm_level == MAX_PWM) {
-    ctx->pwm_current = 1;
-    return;
-  }
-
-  do_pwm_work_maybe_switch(ctx);
-}
-
-void
-do_pwm_work(furnace_context_t *ctx)
-{
-  do_pwm_work_(ctx);
-
-  gpio_put(FURNACE_FIRE_PIN, ctx->pwm_current);
 }
 
 static inline int
@@ -555,6 +450,7 @@ main_work_loop(void)
     return 1;
   }
 
+  init_pwm();
   init_pilot(ctx);
   init_stdio(ctx);
 
@@ -563,7 +459,6 @@ main_work_loop(void)
   while (1) {
     const bool deadline_met = get_absolute_time() > ctx->update_deadline;
 
-    do_pwm_work(ctx);
     do_thermocouple_work(ctx, deadline_met);
     do_tcp_work(ctx, deadline_met);
     do_stdio_work(ctx);
@@ -618,11 +513,6 @@ main(void)
 
   cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
   cyw43_arch_enable_sta_mode();
-
-  /* Setup GPIO for enabling and disabling heating. */
-  gpio_init(FURNACE_FIRE_PIN);
-  gpio_set_dir(FURNACE_FIRE_PIN, GPIO_OUT);
-  gpio_put(FURNACE_FIRE_PIN, 0);
 
   while(1) {
     int ret = main_();
