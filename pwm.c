@@ -29,30 +29,6 @@ set_pwm_safe(furnace_context_t *ctx, unsigned new_pwm)
   const unsigned new_pwm_scaled = pwm_scale_level(new_pwm);
   pwm_set_gpio_level(FURNACE_FIRE_PIN, new_pwm_scaled);
 
-  /*
-   * We disable the PWM for max possible value to get rid of the annoying
-   * "noise" making MAX_PWM going down to 0V for a moment at the end of the duty
-   * cycle. The trick is to set the level first, on the running pwm and then
-   * disable the pwm to "lock in" the value. The value set by the
-   * pwm_set_gpio_level is latched on the next wrap of the pwm. We have to make
-   * sure we latched it before it being stoped. Otherwise pwm_set_enabled could
-   * have been called before the wrap happend and value set by
-   * pwm_set_gpio_level would have been ignored.
-   */
-  _Static_assert(PWM_DUTY / MAX_PWM == PWM_LEVEL_SCALE);
-  if (new_pwm == MAX_PWM) {
-    /* Make sure the pwm_set_gpio_level value was latched. */
-    while (pwm_get_counter(FURNACE_FIRE_PWM_SLICE) != 0);
-
-    /* And finally disable the PWM to get constant 3.3V output. */
-    pwm_set_enabled(FURNACE_FIRE_PWM_SLICE, false);
-  }
-
-  /* For any other value we enable the PWM. */
-  else {
-    pwm_set_enabled(FURNACE_FIRE_PWM_SLICE, true);
-  }
-
   return 0;
 }
 
