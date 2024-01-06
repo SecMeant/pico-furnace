@@ -131,11 +131,12 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
       const size_t msg_len = snprintf(msg, sizeof(msg), "pwm = %d\r\n", ctx->pwm_level);
       feedback(msg, msg_len);
   } else if (sscanf(buffer, "pwm %u", &arg) == 1) {
-    if (set_pwm_safe(ctx, arg) == 1){
+    if (set_pwm_safe(ctx, arg) == 0){
+      ctx->pilot.is_enabled = 0;
+    } else {
       const char msg[] = "pwm argument too big!\r\n";
       const size_t msg_len = sizeof(msg)-1;
       feedback(msg, msg_len);
-      ctx->pilot.is_enabled = 0;
     }
   } else if (strncmp(buffer, "auto\n", 5) == 0) {
       char msg[16];
