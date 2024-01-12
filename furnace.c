@@ -13,10 +13,14 @@
 
 #include "spi_config.h"
 #include "max31856.h"
+#include "logger.h"
 
 #define TCP_PORT        4242
 #define DEBUG_printf    printf
 #define BUF_SIZE        64
+
+#define STR(X) STR_HELPER(X)
+#define STR_HELPER(X) #X
 
 /* GPIO for enabling and disabling heating of the furnace. */
 #define FURNACE_FIRE_PIN 21
@@ -49,6 +53,7 @@ typedef struct {
   int             cur_temp;
   tcp_context_t   tcp;
   stdio_context_t stdio;
+  uint8_t         log_bits;
 
   pilot_context_t       pilot;
   uint8_t pwm_level;
@@ -71,7 +76,7 @@ tcp_server_close(furnace_context_t* ctx)
     err = tcp_close(ctx->tcp.client_pcb);
 
     if (err != ERR_OK) {
-      DEBUG_printf("close failed %d, calling abort\n", err);
+      log_stdout_server(ctx->log_bits, "close failed %d, calling abort\n", err);
       tcp_abort(ctx->tcp.client_pcb);
       err = ERR_ABRT;
     }
@@ -100,7 +105,7 @@ tcp_server_send_data(furnace_context_t* ctx,
 void
 tcp_server_recv_(furnace_context_t *ctx, struct tcp_pcb* tpcb, struct pbuf* p)
 {
-  DEBUG_printf("tcp_server_recv %d\n", p->tot_len);
+  log_stdout_server(ctx->log_bits, "tcp_server_recv %d\n", p->tot_len);
 
   if (p->tot_len == 0)
     return;
@@ -121,6 +126,7 @@ static void
 command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const char*, const size_t))
 {
   unsigned arg;
+  char     str_arg[BUF_SIZE];
 
   if (buffer[0] == '\n') return;
 
@@ -162,18 +168,37 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
     char msg[16];
     const size_t msg_len = snprintf(msg, sizeof(msg), "temp = %d\r\n", ctx->pilot.des_temp);
     feedback(msg, msg_len);
+  } else if (sscanf(buffer, "log %" STR(BUF_SIZE) "s %u", &str_arg, &arg) == 2) {
+    if(arg >= 2) {
+      const char msg[] = "log value too big!\r\n";
+      const size_t msg_len = sizeof(msg)-1;
+      feedback(msg, msg_len);
+    }
+    set_log(str_arg, arg, &ctx->log_bits);
+  } else if (strncmp(buffer, "log\n", 4) == 0) {
+    char msg[LOG_MSG_BUFFER_SIZE];
+    const size_t msg_len = get_logs(msg, ctx->log_bits);
+    feedback(msg, msg_len);
   } else if(memcmp(buffer, "help\n", 5) == 0) {
-    const char msg[] = "help             shows this message\n"
-                        "reboot           reboot device\n"
-                        "pwm <0;50>       sets pwm\n"
-                        "pwm              prints current pwm level\n"
-                        "temp <0;1250>    sets wanted temperature\n"
-                        "temp             shows current wanted temperature\n"
-                        "auto <0;1>       sets automatic pwm control, it is\n"
-                        "                 reaching temperature set by 'temp' command\n"
-                        "                 0 - off\n"
-                        "                 1 - on\n"
-                        "auto             shows current auto status\n";
+
+    const char msg[] = "help              \t\t shows this message\n"
+                        "reboot            \t\t reboot device\n"
+                        "pwm <0;50>        \t\t sets pwm\n"
+                        "pwm               \t\t prints current pwm level\n"
+                        "temp <0;1250>     \t\t sets wanted temperature\n"
+                        "temp              \t\t shows current wanted temperature\n"
+                        "auto <0;1>        \t\t sets automatic pwm control, it is\n"
+                        "                  \t\t reaching temperature set by 'temp' command\n"
+                        "                  \t\t\t 0 - off\n"
+                        "                  \t\t\t 1 - on\n"
+                        "auto              \t\t shows current auto status\n"
+                        "log <option> <0;1>\t\t sets output level on stdio\n"
+                        "                  \t\t\t options:\n"
+                        "                  \t\t\t\t server,\n"
+                        "                  \t\t\t\t thermocouple\n"
+                        "                  \t\t\t 0 - off\n"
+                        "                  \t\t\t 1 - on\n"
+                        "log               \t\t prints names of turned on log options\n";
     const size_t msg_len = sizeof(msg)-1;
     feedback(msg, msg_len);
   }
@@ -212,7 +237,7 @@ tcp_server_recv(void* ctx_, struct tcp_pcb* tpcb, struct pbuf* p, err_t err)
 
   tcp_command_handler(ctx, tpcb);
 
-  DEBUG_printf("tcp_server_recv: %.*s\n", p->tot_len, ctx->tcp.recv_buffer);
+  log_stdout_server(ctx->log_bits, "tcp_server_recv: %.*s\n", p->tot_len, ctx->tcp.recv_buffer);
 
   return ERR_OK;
 }
@@ -222,7 +247,7 @@ tcp_server_err(void* ctx_, err_t err)
 {
   furnace_context_t *ctx = (furnace_context_t*)ctx_;
 
-  DEBUG_printf("tcp_client_err_fn %d\n", err);
+  log_stdout_server(ctx->log_bits, "tcp_client_err_fn %d\n", err);
   tcp_server_close(ctx);
 }
 
@@ -232,12 +257,12 @@ tcp_server_accept(void* ctx_, struct tcp_pcb* client_pcb, err_t err)
   furnace_context_t *ctx = (furnace_context_t*)ctx_;
 
   if (err != ERR_OK || client_pcb == NULL) {
-    DEBUG_printf("Failure in accept\n");
+    log_stdout_server(ctx->log_bits, "Failure in accept\n");
     tcp_server_close(ctx);
     return ERR_VAL;
   }
 
-  DEBUG_printf("Client connected\n");
+  log_stdout_server(ctx->log_bits, "Client connected\n");
 
   ctx->tcp.client_pcb = client_pcb;
   tcp_arg(client_pcb, ctx);
@@ -255,25 +280,26 @@ tcp_server_open(void* ctx_)
 {
   furnace_context_t *ctx = (furnace_context_t*)ctx_;
 
-  DEBUG_printf("Starting server at %s on port %u\n",
-               ip4addr_ntoa(netif_ip4_addr(netif_list)),
-               TCP_PORT);
+  log_stdout_server(ctx->log_bits,
+                     "Starting server at %s on port %u\n",
+                     ip4addr_ntoa(netif_ip4_addr(netif_list)),
+                     TCP_PORT);
 
   struct tcp_pcb* pcb = tcp_new_ip_type(IPADDR_TYPE_ANY);
   if (!pcb) {
-    DEBUG_printf("failed to create pcb\n");
+    log_stdout_server(ctx->log_bits, "Failed to create pcb\n");
     return false;
   }
 
   err_t err = tcp_bind(pcb, NULL, TCP_PORT);
   if (err) {
-    DEBUG_printf("failed to bind to port %u\n", TCP_PORT);
+    log_stdout_server(ctx->log_bits, "Failed to bind to port %u\n", TCP_PORT);
     return false;
   }
 
   ctx->tcp.server_pcb = tcp_listen_with_backlog(pcb, 1);
   if (!ctx->tcp.server_pcb) {
-    DEBUG_printf("failed to listen\n");
+    log_stdout_server(ctx->log_bits, "Failed to listen\n");
     if (pcb) {
       tcp_close(pcb);
     }
@@ -294,11 +320,11 @@ do_thermocouple_work(furnace_context_t *ctx, bool deadline_met)
 
   const bool rdy = gpio_get(FURNACE_MAX31856_RDY);
   if (rdy)
-    DEBUG_printf("RDY: %d\n", (int) rdy);
+    log_stdout_thermocouple(ctx->log_bits, "RDY: %d\n", (int) rdy);
 
   ctx->cur_temp = max31856_read_temperature();
-  DEBUG_printf("cold: %u\n", max31856_read_cold_junction());
-  DEBUG_printf("hot: %u\n", ctx->cur_temp);
+  log_stdout_thermocouple(ctx->log_bits, "cold: %u\n", max31856_read_cold_junction());
+  log_stdout_thermocouple(ctx->log_bits, "hot: %u\n", ctx->cur_temp);
 }
 
 void
