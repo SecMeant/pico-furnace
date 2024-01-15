@@ -8,15 +8,17 @@
 
 #define SERVER       "server"
 #define THERMOCOUPLE "thermocouple"
+#define BASIC        "basic"
 
 #define \
 LOG_MSG_BUFFER_SIZE (sizeof(SERVER) + sizeof(THERMOCOUPLE) \
-                    + sizeof("\r\n"))
+                    + sizeof(BASIC)  + sizeof("\r\n"))
 
 enum
 log_kind {
   LOG_KIND_SERVER       = 1 << 0,
-  LOG_KIND_THERMOCOUPLE = 1 << 1
+  LOG_KIND_THERMOCOUPLE = 1 << 1,
+  LOG_KIND_BASIC        = 1 << 2
 };
 
 typedef struct {
@@ -47,3 +49,4 @@ log_stdout(const uint8_t log_level, enum log_kind kind, const char* fmt, ...) {
 
 #define log_stdout_server(log, fmt, ...)       log_stdout(log, LOG_KIND_SERVER, fmt, ##__VA_ARGS__)
 #define log_stdout_thermocouple(log, fmt, ...) log_stdout(log, LOG_KIND_THERMOCOUPLE, fmt, ##__VA_ARGS__)
+#define log_stdout_basic(log, fmt, ...)        log_stdout(log, LOG_KIND_BASIC, fmt, ##__VA_ARGS__)
