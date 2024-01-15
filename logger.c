@@ -16,6 +16,11 @@ static const logger_pair_t logger[] = {
     .log_name  = THERMOCOUPLE,
     .log_value = LOG_KIND_THERMOCOUPLE,
     .length    = sizeof(THERMOCOUPLE)
+  },
+  {
+    .log_name  = BASIC,
+    .log_value = LOG_KIND_BASIC,
+    .length    = sizeof(BASIC)
   }
 };
 

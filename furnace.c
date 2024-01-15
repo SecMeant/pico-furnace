@@ -15,6 +15,9 @@
 #include "max31856.h"
 #include "logger.h"
 
+#include "basic_defines.h"
+#include CONSTEVAL_HEADER
+
 #define TCP_PORT        4242
 #define DEBUG_printf    printf
 #define BUF_SIZE        64
@@ -26,8 +29,6 @@
 #define FURNACE_FIRE_PIN 21
 #define FURNACE_FIRE_PWM_SLICE pwm_gpio_to_slice_num(FURNACE_FIRE_PIN)
 #define FURNACE_FIRE_PWM_CHANNEL pwm_gpio_to_channel(FURNACE_FIRE_PIN)
-
-#define MAX_TEMP 1250
 
 typedef struct {
   struct tcp_pcb* server_pcb;
@@ -195,7 +196,8 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
                         "log <option> <0;1>\t\t sets output level on stdio\n"
                         "                  \t\t\t options:\n"
                         "                  \t\t\t\t server,\n"
-                        "                  \t\t\t\t thermocouple\n"
+                        "                  \t\t\t\t thermocouple,\n"
+                        "                  \t\t\t\t basic\n"
                         "                  \t\t\t 0 - off\n"
                         "                  \t\t\t 1 - on\n"
                         "log               \t\t prints names of turned on log options\n";
@@ -327,10 +329,23 @@ do_thermocouple_work(furnace_context_t *ctx, bool deadline_met)
   log_stdout_thermocouple(ctx->log_bits, "hot: %u\n", ctx->cur_temp);
 }
 
+static int
+format_status(char* buffer, furnace_context_t* ctx)
+{
+    return snprintf(
+      buffer,
+      FORMAT_STATUS_SIZE,
+      FORMAT_STATUS_FMT,
+      ctx->cur_temp,
+      ctx->pwm_level,
+      MAX_PWM
+    );
+}
+
 void
 do_tcp_work(furnace_context_t *ctx, bool deadline_met)
 {
-  char temperature_str[32];
+  char temperature_str[FORMAT_STATUS_SIZE];
 
   cyw43_arch_poll();
 
@@ -343,14 +358,7 @@ do_tcp_work(furnace_context_t *ctx, bool deadline_met)
   }
 
   if (ctx->tcp.client_pcb && deadline_met) {
-    const int temperature_str_len = snprintf(
-      temperature_str,
-      sizeof(temperature_str),
-      "temp:%d, pwm:%u/%u\n",
-      ctx->cur_temp,
-      ctx->pwm_level,
-      MAX_PWM
-    );
+    const int temperature_str_len = format_status(temperature_str, ctx);
 
     tcp_server_send_data(
       ctx,
@@ -440,8 +448,16 @@ stdio_command_handler(furnace_context_t* ctx)
 }
 
 void
-do_stdio_work(furnace_context_t* ctx)
+do_stdio_work(furnace_context_t* ctx, bool deadline_met)
 {
+  if(deadline_met)
+  {
+    char buffer[FORMAT_STATUS_SIZE];
+
+    format_status(buffer, ctx);
+    log_stdout_basic(ctx->log_bits, buffer);
+  }
+
   while(1) {
     uint8_t c = getchar_timeout_us(0);
 
@@ -492,7 +508,7 @@ main_work_loop(void)
     do_thermocouple_work(ctx, deadline_met);
 #endif
     do_tcp_work(ctx, deadline_met);
-    do_stdio_work(ctx);
+    do_stdio_work(ctx, deadline_met);
     do_pilot_work(ctx);
 
     if (deadline_met)

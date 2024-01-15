@@ -2,7 +2,8 @@
 #include "hardware/pwm.h"
 #include "hardware/platform_defs.h"
 
-#define MAX_PWM 50U
+#include "basic_defines.h" // for MAX_PWM
+
 #define PWM_DUTY ((uint16_t) 12500)
 #define PWM_SYSCLK_DIV ((uint8_t) 250)
 
