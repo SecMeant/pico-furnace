@@ -432,6 +432,7 @@ stdio_command_handler(furnace_context_t* ctx)
   void
   send_stdio(const char* msg, const size_t msg_len)
   {
+    if(msg_len == 0) return;
     printf(msg);
   }
 
