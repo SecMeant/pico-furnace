@@ -24,8 +24,9 @@ checkenv_%:
 
 pico_sdk: checkenv_PICO_SDK_PATH checkenv_PICO_EXTRAS_PATH
 
-build/: ./configure_wifi.sh wlan.ini pico_sdk
-	CFLAGS="$(CFLAGS)" ./configure_wifi.sh
+build/: ./configure_wifi.sh ./scripts/build_native.sh wlan.ini pico_sdk
+	./scripts/build_native.sh
+	FLAGS="$(CFLAGS)" ./configure_wifi.sh
 
 ninja: build/
 	ninja -C build/
@@ -36,5 +37,7 @@ flash: build/furnace.uf2
 
 clean:
 	rm -rf build/
+	rm -rf native/build/
+	rm consteval_header.h
 
 .PHONY: ninja flash clean pico_sdk

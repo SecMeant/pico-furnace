@@ -2,3 +2,4 @@ build/
 compile_commands.json
 wlan.ini
 .cache/
+consteval_header.h
