@@ -337,8 +337,10 @@ format_status(char* buffer, furnace_context_t* ctx)
       FORMAT_STATUS_SIZE,
       FORMAT_STATUS_FMT,
       ctx->cur_temp,
+      ctx->pilot.des_temp,
       ctx->pwm_level,
-      MAX_PWM
+      MAX_PWM,
+      ctx->pilot.is_enabled
     );
 }
 
