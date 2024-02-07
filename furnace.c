@@ -58,9 +58,18 @@ typedef struct {
 
   pilot_context_t       pilot;
   uint8_t pwm_level;
+
+#if CONFIG_MAGNETRON
+  uint8_t         pulse_count;
+  absolute_time_t magnetron_deadline;
+#endif
 } furnace_context_t;
 
 #include "pwm.c"
+
+#if CONFIG_MAGNETRON
+  #include "magnetron.c"
+#endif
 
 int
 max31856_init(void);
@@ -200,10 +209,21 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
                         "                  \t\t\t\t basic\n"
                         "                  \t\t\t 0 - off\n"
                         "                  \t\t\t 1 - on\n"
-                        "log               \t\t prints names of turned on log options\n";
+                        "log               \t\t prints names of turned on log options\n"
+                        "pulse <0:127>     \t\t starts pulses of magnetron\n";
     const size_t msg_len = sizeof(msg)-1;
     feedback(msg, msg_len);
+  } 
+#if CONFIG_MAGNETRON
+  else if(sscanf(buffer, "pulse %u", &arg) == 1) {
+    if(arg > 127){
+      const char msg[] = "pulse value too big!\r\n";
+      const size_t msg_len = sizeof(msg)-1;
+      feedback(msg, msg_len);
+    }
+    ctx->pulse_count = arg*2;
   }
+#endif
 }
 
 static void
@@ -501,10 +521,15 @@ main_work_loop(void)
   init_pilot(ctx);
   init_stdio(ctx);
 
+#if CONFIG_MAGNETRON
+  init_magnetron(ctx);
+#endif
+
   cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
 
   while (1) {
-    const bool deadline_met = get_absolute_time() > ctx->update_deadline;
+    const absolute_time_t now = get_absolute_time();
+    const bool deadline_met = now > ctx->update_deadline;
 
 #if CONFIG_THERMO
     do_thermocouple_work(ctx, deadline_met);
@@ -515,6 +540,10 @@ main_work_loop(void)
 
     if (deadline_met)
       ctx->update_deadline = make_timeout_time_ms(1000);
+#if CONFIG_MAGNETRON
+    const bool magnetron_deadline = now > ctx->magnetron_deadline;
+    do_magnetron_work(ctx, magnetron_deadline);
+#endif
   }
 
   free(ctx);
