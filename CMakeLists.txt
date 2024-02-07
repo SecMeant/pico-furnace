@@ -19,7 +19,7 @@ add_executable(${PROJECT_NAME}
 target_compile_definitions(furnace PRIVATE
         WIFI_SSID=\"${WIFI_SSID}\"
         WIFI_PASSWORD=\"${WIFI_PASSWORD}\"
-        CYW43_HOST_NAME=\"pico_furnace\"
+        CYW43_HOST_NAME=\"${CONFIG_HOSTNAME}\"
         )
 target_include_directories(furnace PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
