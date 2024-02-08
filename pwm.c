@@ -38,7 +38,7 @@ set_pwm_safe(furnace_context_t *ctx, unsigned new_pwm)
  * sys_clk divider and duty cycle with properly scaled pwm level before being
  * set to get 40Hz PWM.
  *
- * We choose 40Hz because our SSR support max 50Hz and we just want to mbe safe.
+ * We choose 40Hz because our SSR support max 50Hz and we just want to be safe.
  */
 static void
 pwm_config_freq_40hz(pwm_config *cfg)
