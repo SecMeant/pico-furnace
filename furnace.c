@@ -195,6 +195,7 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
                         "reboot            \t\t reboot device\n"
                         "pwm <0;50>        \t\t sets pwm\n"
                         "pwm               \t\t prints current pwm level\n"
+#if CONFIG_THERMO
                         "temp <0;1250>     \t\t sets wanted temperature\n"
                         "temp              \t\t shows current wanted temperature\n"
                         "auto <0;1>        \t\t sets automatic pwm control, it is\n"
@@ -202,6 +203,10 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
                         "                  \t\t\t 0 - off\n"
                         "                  \t\t\t 1 - on\n"
                         "auto              \t\t shows current auto status\n"
+#endif
+#if CONFIG_MAGNETRON
+                        "pulse <0:127>     \t\t starts pulses of magnetron\n"
+#endif
                         "log <option> <0;1>\t\t sets output level on stdio\n"
                         "                  \t\t\t options:\n"
                         "                  \t\t\t\t server,\n"
@@ -209,8 +214,7 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
                         "                  \t\t\t\t basic\n"
                         "                  \t\t\t 0 - off\n"
                         "                  \t\t\t 1 - on\n"
-                        "log               \t\t prints names of turned on log options\n"
-                        "pulse <0:127>     \t\t starts pulses of magnetron\n";
+                        "log               \t\t prints names of turned on log options\n";
     const size_t msg_len = sizeof(msg)-1;
     feedback(msg, msg_len);
   } 
