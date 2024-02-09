@@ -63,7 +63,22 @@ typedef struct {
   uint8_t         pulse_count;
   absolute_time_t magnetron_deadline;
 #endif
+  
+#if CONFIG_WATER
+  /*
+   *    pwm_water value is stored using already biased value
+   *    which should be in range <WATER_OFFSET:MAX_PWM>
+   *    any value outside that range is a bug.
+   */
+  uint8_t pwm_water;
+#endif
 } furnace_context_t;
+
+#if CONFIG_WATER
+  #define WATER_PIN 12
+  #define WATER_PIN_SLICE pwm_gpio_to_slice_num(WATER_PIN)
+  #define WATER_OFFSET 40
+#endif
 
 #include "pwm.c"
 
@@ -132,6 +147,49 @@ tcp_server_recv_(furnace_context_t *ctx, struct tcp_pcb* tpcb, struct pbuf* p)
   tcp_recved(tpcb, p->tot_len);
 }
 
+#if WATER_CONFIG
+static void
+handle_command_water(furnace context_t* ctx, void (*feedback)(const char *, const size_t), unsigned arg) {
+    if(arg < 0){
+      const char msg[] = "water pwm argument too small!\r\n";
+      const size_t msg_len = sizeof(msg)-1;
+      feedback(msg, msg_len);
+      return;
+    }
+
+    if(arg > 10){
+      const char msg[] = "water pwm argument too big!\r\n";
+      const size_t msg_len = sizeof(msg)-1;
+      feedback(msg, msg_len);
+      return;
+    }
+
+    const int pwm_value = arg + WATER_OFFSET;
+    const int res = set_pwm_safe(WATER_PIN, ctx, pwm_value);
+
+    if(res == 0)
+      return;
+
+    if (res  == 1){
+      const char msg[] = "water pwm argument too big!\r\n";
+      const size_t msg_len = sizeof(msg)-1;
+      feedback(msg, msg_len);
+      return;
+    }
+
+    if(res == -1){
+      const char msg[] = "set_pwm_safe: unexpected pin argument!\r\n";
+      const size_t msg_len = sizeof(msg)-1;
+      feedback(msg, msg_len);
+      return;
+    }
+
+    const char msg[] = "set_pwm_safe: unexpected return value!\r\n";
+    const size_t msg_len = sizeof(msg)-1;
+    feedback(msg, msg_len);
+}
+#endif
+
 static void
 command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const char*, const size_t))
 {
@@ -147,10 +205,19 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
       const size_t msg_len = snprintf(msg, sizeof(msg), "pwm = %d\r\n", ctx->pwm_level);
       feedback(msg, msg_len);
   } else if (sscanf(buffer, "pwm %u", &arg) == 1) {
-    if (set_pwm_safe(ctx, arg) == 0){
+    const int res= set_pwm_safe(FURNACE_FIRE_PIN, ctx, arg);
+    if (res == 0){
       ctx->pilot.is_enabled = 0;
-    } else {
+    } else if ( res == 1){
       const char msg[] = "pwm argument too big!\r\n";
+      const size_t msg_len = sizeof(msg)-1;
+      feedback(msg, msg_len);
+    } else if ( res == -1){
+      const char msg[] = "set_pwm_safe: unexpected pin argument!\r\n";
+      const size_t msg_len = sizeof(msg)-1;
+      feedback(msg, msg_len);
+    } else {
+      const char msg[] = "set_pwm_safe: unexpected return value!\r\n";
       const size_t msg_len = sizeof(msg)-1;
       feedback(msg, msg_len);
     }
@@ -208,6 +275,10 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
 #if CONFIG_MAGNETRON
                         "pulse <0:127>     \t\t starts pulses of magnetron\n"
 #endif
+#if CONFIG_WATER
+                        "water <0:10>      \t\t sets pwm duty of water channel\n"
+                        "water             \t\t shows current water pwm\n"
+#endif
                         "log <option> <0;1>\t\t sets output level on stdio\n"
                         "                  \t\t\t options:\n"
                         "                  \t\t\t\t server,\n"
@@ -228,6 +299,15 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
     } else {
       ctx->pulse_count = arg*2;
     }
+  }
+#endif
+#if CONFIG_WATER
+  else if(sscanf(buffer, "water %u", &arg) == 1) {
+    handle_command_water(ctx, feedback, arg);
+  } else if(memcmp(buffer, "water\n", 6) == 0){
+    char msg[16];
+    const size_t msg_len = snprintf(msg, sizeof(msg), "water = %d\r\n", ctx->pwm_water);
+    feedback(msg, msg_len);
   }
 #endif
 }
@@ -436,7 +516,7 @@ do_pilot_work(furnace_context_t *ctx)
     if(sign*diff <= 1)
       pwm += sign;
 
-    set_pwm_safe(ctx, pwm);
+    set_pwm_safe(FURNACE_FIRE_PIN, ctx, pwm);
   }
 }
 
