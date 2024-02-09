@@ -17,7 +17,7 @@ pwm_scale_level(unsigned unscaled_pwm)
 }
 
 static inline int
-set_pwm_safe(furnace_context_t *ctx, unsigned new_pwm)
+set_pwm_safe(unsigned pin, furnace_context_t *ctx, unsigned new_pwm)
 {
   if (new_pwm > MAX_PWM)
     return 1;
@@ -25,13 +25,29 @@ set_pwm_safe(furnace_context_t *ctx, unsigned new_pwm)
   if (((unsigned) ((uint16_t) new_pwm)) != new_pwm)
     return 1;
 
-  ctx->pwm_level = new_pwm;
+  switch(pin){
+#if CONFIG_WATER
+    case WATER_PIN:
+      ctx->pwm_water = new_pwm;
 
-  const unsigned new_pwm_scaled = pwm_scale_level(new_pwm);
-  pwm_set_gpio_level(FURNACE_FIRE_PIN, new_pwm_scaled);
+      pwm_set_gpio_level(WATER_PIN, new_pwm);
+      break;
+#endif
+
+    case FURNACE_FIRE_PIN:
+      ctx->pwm_level = new_pwm;
+
+      const unsigned new_pwm_scaled = pwm_scale_level(new_pwm);
+      pwm_set_gpio_level(FURNACE_FIRE_PIN, new_pwm_scaled);
+      break;
+
+    default:
+      return -1;
+  }
 
   return 0;
 }
+
 
 /*
  * There is no way to set the frequency of the PWM directly, but we can use
@@ -63,5 +79,16 @@ init_pwm(void)
 
   pwm_set_gpio_level(FURNACE_FIRE_PIN, 0);
   pwm_init(FURNACE_FIRE_PWM_SLICE, &cfg, true);
+
+#if CONFIG_WATER
+  gpio_set_function(WATER_PIN, GPIO_FUNC_PWM);
+  pwm_set_irq_enabled(WATER_PIN_SLICE, false);
+
+  pwm_config water_cfg = pwm_get_default_config();
+  pwm_config_set_wrap(&water_cfg, MAX_PWM);
+
+  pwm_set_gpio_level(WATER_PIN, 0);
+  pwm_init(WATER_PIN_SLICE, &water_cfg, true);
+#endif
 }
 
