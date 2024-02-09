@@ -183,8 +183,9 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
       const char msg[] = "log value too big!\r\n";
       const size_t msg_len = sizeof(msg)-1;
       feedback(msg, msg_len);
+    } else {
+      set_log(str_arg, arg, &ctx->log_bits);
     }
-    set_log(str_arg, arg, &ctx->log_bits);
   } else if (strncmp(buffer, "log\n", 4) == 0) {
     char msg[LOG_MSG_BUFFER_SIZE];
     const size_t msg_len = get_logs(msg, ctx->log_bits);
@@ -224,8 +225,9 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
       const char msg[] = "pulse value too big!\r\n";
       const size_t msg_len = sizeof(msg)-1;
       feedback(msg, msg_len);
+    } else {
+      ctx->pulse_count = arg*2;
     }
-    ctx->pulse_count = arg*2;
   }
 #endif
 }
