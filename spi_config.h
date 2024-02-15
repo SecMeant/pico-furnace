@@ -1,7 +1,7 @@
 #pragma once
 
-/* MAX 31856 data ready pin */
-#define FURNACE_MAX31856_RDY  20
+/* MAX 318xx data ready pin */
+#define FURNACE_MAX318xx_RDY  20
 
 #define FURNACE_SPI_RX_PIN    16
 #define FURNACE_SPI_CSN_PIN   17

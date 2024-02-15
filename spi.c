@@ -13,7 +13,7 @@
 
 #define DMA 0
 
-void max31856_spi_init(void)
+void max318xx_spi_init(void)
 {
     /* Enable SPI at 1 MHz and connect to GPIOs */
     spi_init(FURNACE_SPI_INSTANCE, 1000 * 512);
@@ -41,7 +41,7 @@ int spi_main()
 
     printf("SPI DMA example\n");
 
-    max31856_spi_init();
+    max318xx_spi_init();
 
 #if DMA
     // Grab some unused dma channels
