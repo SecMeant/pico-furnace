@@ -4,7 +4,7 @@ GREEN := $(ESC)[0;32m
 PURPLE := $(ESC)[0;35m
 ZERO := $(ESC)[0;0m
 
-CONFIG_THERMO := 1
+CONFIG_THERMO := Ktype
 CONFIG_MAGNETRON  := 0
 CONFIG_HOSTNAME   := "pico_furnace"
 CONFIG_WATER := 1

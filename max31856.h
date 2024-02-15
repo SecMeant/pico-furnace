@@ -1,18 +1,5 @@
 #pragma once
 
-#include <string.h>
-#include <stdint.h>
-
-#include "pico/stdlib.h"
-#include "pico/binary_info.h"
-#include "hardware/gpio.h"
-#include "hardware/spi.h"
-
-#include "spi_config.h"
-
-#define MAX31856_REG_READ_BIT (0x00)
-#define MAX31856_REG_WRITE_BIT (0x80)
-
 #define MAX31856_REG_CR0   (0x00)
 #define MAX31856_REG_CR1   (0x01)
 #define MAX31856_REG_MASK  (0x02)
@@ -25,50 +12,12 @@
 #define MAX31856_REG_LTCBM (0x0d)
 #define MAX31856_REG_LTCBL (0x0e)
 
-#define MAX31856_SPI_INSTANCE FURNACE_SPI_INSTANCE
+/*
+ * MAX31856 Precision Thermocouple to Digital Converter with Linearization.
+ * Docs: https://holzcoredump.cc/MAX31856.pdf
+ */
 
-void max31856_spi_init(void);
-
-static inline uint8_t max31856_read_reg8(uint8_t addr)
-{
-  const uint16_t len = 2;
-  uint8_t src[len], dst[len];
-
-  src[0] = MAX31856_REG_READ_BIT | addr;
-  src[1] = 0;
-
-  gpio_put(FURNACE_SPI_CSN_PIN, 0);
-  spi_write_read_blocking(MAX31856_SPI_INSTANCE, src, dst, len);
-  gpio_put(FURNACE_SPI_CSN_PIN, 1);
-
-  sleep_ms(1);
-
-  return dst[1];
-}
-
-static inline uint8_t max31856_write_reg8(uint8_t addr, uint8_t val)
-{
-  const uint16_t len = 2;
-  uint8_t src[len], dst[len];
-
-  src[0] = MAX31856_REG_WRITE_BIT | addr;
-  src[1] = val;
-
-  gpio_put(FURNACE_SPI_CSN_PIN, 0);
-  spi_write_read_blocking(MAX31856_SPI_INSTANCE, src, dst, len);
-  gpio_put(FURNACE_SPI_CSN_PIN, 1);
-
-  sleep_ms(1);
-
-  return dst[1];
-}
-
-static inline bool max31856_read_data_ready(void)
-{
-  return gpio_get(FURNACE_MAX31856_RDY);
-}
-
-static inline uint32_t max31856_read_cold_junction(void)
+static inline uint32_t max318xx_read_cold_junction(void)
 {
   const uint16_t len = 2;
   uint8_t src[len], dst[len];
@@ -77,7 +26,7 @@ static inline uint32_t max31856_read_cold_junction(void)
   src[0] = MAX31856_REG_CJTH;
 
   gpio_put(FURNACE_SPI_CSN_PIN, 0);
-  spi_write_read_blocking(MAX31856_SPI_INSTANCE, src, dst, len);
+  spi_write_read_blocking(MAX318xx_SPI_INSTANCE, src, dst, len);
   gpio_put(FURNACE_SPI_CSN_PIN, 1);
 
   sleep_ms(1);
@@ -85,7 +34,7 @@ static inline uint32_t max31856_read_cold_junction(void)
   return dst[1];
 }
 
-static inline int max31856_read_temperature(void)
+static inline int max318xx_read_temperature(void)
 {
   const uint16_t len = 4;
   uint8_t src[len], dst[len];
@@ -97,7 +46,7 @@ static inline int max31856_read_temperature(void)
   src[0] = MAX31856_REG_LTCBH;
 
   gpio_put(FURNACE_SPI_CSN_PIN, 0);
-  spi_write_read_blocking(MAX31856_SPI_INSTANCE, src, dst, len);
+  spi_write_read_blocking(MAX318xx_SPI_INSTANCE, src, dst, len);
   gpio_put(FURNACE_SPI_CSN_PIN, 1);
 
   sleep_ms(1);
@@ -116,3 +65,45 @@ static inline int max31856_read_temperature(void)
   return temperature;
 }
 
+static inline void max318xx_config(void)
+{
+  printf("Initializing MAX31856...");
+
+  max318xx_spi_init();
+
+  /* Configure GPIO pin that we can attach to RDY pin on MAX 318xx */
+  gpio_init(FURNACE_MAX318xx_RDY);
+  gpio_set_dir(FURNACE_MAX318xx_RDY, GPIO_IN);
+
+  /* Enable automatic conversion mode and 50Hz noise filter. */
+  max318xx_write_reg8(MAX31856_REG_CR0, 0x81);
+
+  /* Set thermocouple type to S */
+  // max31856_write_reg8(MAX31856_REG_CR1, 0x06);
+
+  /* Set thermocouple type to K */
+  max318xx_write_reg8(MAX31856_REG_CR1, 0x03);
+}
+
+static inline int max318xx_sanity_check(void)
+{
+  /* 
+   * Sanity check.
+   * We read few first registers and check against default values.
+   * It's basically SPI connection check.
+   */
+  if (max318xx_read_reg8(MAX31856_REG_CR0) != 0x81)
+    return 1;
+  if (max318xx_read_reg8(MAX31856_REG_CR1) != 0x03)
+    return 2;
+  if (max318xx_read_reg8(MAX31856_REG_MASK) != 0xff)
+    return 3;
+  if (max318xx_read_reg8(MAX31856_REG_CJHF) != 0x7f)
+    return 4;
+  if (max318xx_read_reg8(MAX31856_REG_CJLF) != 0xc0)
+    return 5;
+
+  printf(" OK\n");
+
+  return 0;
+}

@@ -13,7 +13,7 @@ pico_sdk_init()
 add_executable(${PROJECT_NAME}
         furnace.c
         spi.c
-        max31856.c
+        max318xx.c
         logger.c
         )
 target_compile_definitions(furnace PRIVATE
