@@ -196,7 +196,7 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
                         "pwm <0;50>        \t\t sets pwm\n"
                         "pwm               \t\t prints current pwm level\n"
 #if CONFIG_THERMO
-                        "temp <0;1250>     \t\t sets wanted temperature\n"
+                        "temp <0;" STR(MAX_TEMP) ">     \t\t sets wanted temperature\n"
                         "temp              \t\t shows current wanted temperature\n"
                         "auto <0;1>        \t\t sets automatic pwm control, it is\n"
                         "                  \t\t reaching temperature set by 'temp' command\n"
