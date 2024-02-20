@@ -147,9 +147,9 @@ tcp_server_recv_(furnace_context_t *ctx, struct tcp_pcb* tpcb, struct pbuf* p)
   tcp_recved(tpcb, p->tot_len);
 }
 
-#if WATER_CONFIG
+#if CONFIG_WATER
 static void
-handle_command_water(furnace context_t* ctx, void (*feedback)(const char *, const size_t), unsigned arg) {
+handle_command_water(furnace_context_t* ctx, void (*feedback)(const char *, const size_t), unsigned arg) {
     if(arg < 0){
       const char msg[] = "water pwm argument too small!\r\n";
       const size_t msg_len = sizeof(msg)-1;
