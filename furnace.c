@@ -58,14 +58,14 @@ typedef struct {
   stdio_context_t stdio;
   uint8_t         log_bits;
 
-  pilot_context_t       pilot;
-  uint8_t pwm_level;
+  pilot_context_t pilot;
+  uint8_t         pwm_level;
 
 #if CONFIG_MAGNETRON
   uint8_t         pulse_count;
   absolute_time_t magnetron_deadline;
 #endif
-  
+
 #if CONFIG_WATER
   /*
    *    pwm_water value is stored using already biased value
@@ -198,7 +198,8 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
   unsigned arg;
   char     str_arg[BUF_SIZE];
 
-  if (buffer[0] == '\n') return;
+  if (buffer[0] == '\n')
+    return;
 
   if (memcmp(buffer, "reboot", 6) == 0) {
     reset_usb_boot(0,0);
@@ -535,14 +536,7 @@ init_pilot(furnace_context_t *ctx)
 }
 
 static void
-init_stdio(furnace_context_t* ctx)
-{
-  ctx->stdio.parser = ctx->stdio.buffer;
-  memset(&ctx->stdio.buffer, 0, BUF_SIZE);
-}
-
-static void
-reset_stdio_data(furnace_context_t* ctx)
+prepare_stdio(furnace_context_t* ctx)
 {
   memset(&ctx->stdio.buffer, 0, BUF_SIZE);
   ctx->stdio.parser = ctx->stdio.buffer;
@@ -554,7 +548,8 @@ stdio_command_handler(furnace_context_t* ctx)
   void
   send_stdio(const char* msg, const size_t msg_len)
   {
-    if(msg_len == 0) return;
+    if(msg_len == 0)
+      return;
     printf(msg);
   }
 
@@ -575,11 +570,12 @@ do_stdio_work(furnace_context_t* ctx, bool deadline_met)
   while(1) {
     uint8_t c = getchar_timeout_us(0);
 
-    if(c == (uint8_t) PICO_ERROR_TIMEOUT) return;
+    if(c == (uint8_t) PICO_ERROR_TIMEOUT)
+      return;
 
     if(ctx->stdio.parser == ctx->stdio.buffer + BUF_SIZE){
       printf("\nLines longer than %d are invalid!\nResetting stdio buffer.\n", BUF_SIZE);
-      reset_stdio_data(ctx);
+      prepare_stdio(ctx);
       return;
     }
 
@@ -589,7 +585,7 @@ do_stdio_work(furnace_context_t* ctx, bool deadline_met)
     if(c == '\n' || c == '\r') {
       *ctx->stdio.parser = '\n';
       stdio_command_handler(ctx);
-      reset_stdio_data(ctx);
+      prepare_stdio(ctx);
       return;
     }
 
@@ -611,7 +607,7 @@ main_work_loop(void)
 
   init_pwm();
   init_pilot(ctx);
-  init_stdio(ctx);
+  prepare_stdio(ctx);
 
 #if CONFIG_MAGNETRON
   init_magnetron(ctx);
