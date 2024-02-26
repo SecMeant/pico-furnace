@@ -51,12 +51,27 @@ typedef struct {
   uint8_t* parser;
 } stdio_context_t;
 
+typedef struct __attribute__((packed, aligned(1))) {
+  int     des_temp;
+  uint8_t log_bits;
+
+#if CONFIG_WATER
+  uint8_t pwm_water;
+#endif
+
+  bool    is_enabled;
+} flash_io_t;
+
 typedef struct {
   absolute_time_t update_deadline;
+  absolute_time_t flash_deadline;
   int             cur_temp;
   tcp_context_t   tcp;
   stdio_context_t stdio;
+  flash_io_t      flash_io;
+  flash_io_t      flash_last_written;
   uint8_t         log_bits;
+  bool            flash_diff;
 
   pilot_context_t pilot;
   uint8_t         pwm_level;
@@ -87,6 +102,8 @@ typedef struct {
 #if CONFIG_MAGNETRON
   #include "magnetron.c"
 #endif
+
+#include "flash_io.c"
 
 int
 max318xx_init(void);
@@ -169,8 +186,10 @@ handle_command_water(furnace_context_t* ctx, void (*feedback)(const char *, cons
     const int pwm_value = arg + WATER_OFFSET;
     const int res = set_pwm_safe(WATER_PIN, ctx, pwm_value);
 
-    if(res == 0)
+    if(res == 0) {
+      ctx->flash_diff = true;
       return;
+    }
 
     if (res  == 1){
       const char msg[] = "water pwm argument too big!\r\n";
@@ -192,6 +211,9 @@ handle_command_water(furnace_context_t* ctx, void (*feedback)(const char *, cons
 }
 #endif
 
+void
+do_flash_work(furnace_context_t*, bool);
+
 static void
 command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const char*, const size_t))
 {
@@ -202,6 +224,7 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
     return;
 
   if (memcmp(buffer, "reboot", 6) == 0) {
+    do_flash_work(ctx, true);
     reset_usb_boot(0,0);
   } else if (strncmp(buffer, "pwm\n", 4) == 0) {
       char msg[16];
@@ -211,6 +234,7 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
     const int res= set_pwm_safe(FURNACE_FIRE_PIN, ctx, arg);
     if (res == 0){
       ctx->pilot.is_enabled = 0;
+      ctx->flash_diff = true;
     } else if ( res == 1){
       const char msg[] = "pwm argument too big!\r\n";
       const size_t msg_len = sizeof(msg)-1;
@@ -235,6 +259,7 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
       feedback(msg, msg_len);
     } else {
       ctx->pilot.is_enabled = arg;
+      ctx->flash_diff = true;
     }
   } else if (sscanf(buffer, "temp %u", &arg) == 1) {
     if (arg > MAX_TEMP) {
@@ -243,6 +268,7 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
       feedback(msg, msg_len);
     } else {
       ctx->pilot.des_temp = arg;
+      ctx->flash_diff = true;
     }
   } else if (strncmp(buffer, "temp\n", 5) == 0) {
     char msg[16];
@@ -255,6 +281,7 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
       feedback(msg, msg_len);
     } else {
       set_log(str_arg, arg, &ctx->log_bits);
+      ctx->flash_diff = true;
     }
   } else if (strncmp(buffer, "log\n", 4) == 0) {
     char msg[LOG_MSG_BUFFER_SIZE];
@@ -301,6 +328,7 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
       feedback(msg, msg_len);
     } else {
       ctx->pulse_count = arg*2;
+      ctx->flash_diff = true;
     }
   }
 #endif
@@ -594,6 +622,18 @@ do_stdio_work(furnace_context_t* ctx, bool deadline_met)
   }
 }
 
+void
+do_flash_work(furnace_context_t* ctx, bool deadline_met)
+{
+  if(!deadline_met || !ctx->flash_diff)
+    return;
+
+  bool real_diff = flash_compare_diffs(ctx);
+  if(real_diff)
+    write_flash(&(ctx->flash_io));
+  ctx->flash_diff = false;
+}
+
 int
 main_work_loop(void)
 {
@@ -608,16 +648,14 @@ main_work_loop(void)
   init_pwm();
   init_pilot(ctx);
   prepare_stdio(ctx);
-
-#if CONFIG_MAGNETRON
-  init_magnetron(ctx);
-#endif
+  init_flash(ctx);
 
   cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
 
   while (1) {
-    const absolute_time_t now = get_absolute_time();
-    const bool deadline_met = now > ctx->update_deadline;
+    const absolute_time_t now     = get_absolute_time();
+    const bool deadline_met       = now > ctx->update_deadline;
+    const bool flash_deadline_met = now > ctx->flash_deadline;
 
 #if CONFIG_THERMO
     do_thermocouple_work(ctx, deadline_met);
@@ -625,9 +663,13 @@ main_work_loop(void)
     do_tcp_work(ctx, deadline_met);
     do_stdio_work(ctx, deadline_met);
     do_pilot_work(ctx);
+    do_flash_work(ctx, flash_deadline_met);
 
     if (deadline_met)
       ctx->update_deadline = make_timeout_time_ms(1000);
+
+    if(flash_deadline_met)
+      ctx->flash_deadline = make_timeout_time_ms(FLASH_DATA_WRITE_MS);
 #if CONFIG_MAGNETRON
     const bool magnetron_deadline = now > ctx->magnetron_deadline;
     do_magnetron_work(ctx, magnetron_deadline);

@@ -22,13 +22,19 @@
     __stack (== StackTop)
 */
 
+FLASH_USER_DATA_SIZE = 4k ;
+
 MEMORY
 {
-    FLASH(rx) : ORIGIN = 0x10000000, LENGTH = 2048k
+    FLASH(rx) : ORIGIN = 0x10000000, LENGTH = 2048k - FLASH_USER_DATA_SIZE
+    FLASH_USER(rw) : ORIGIN = ORIGIN(FLASH) + LENGTH(FLASH), LENGTH = FLASH_USER_DATA_SIZE
     RAM(rwx) : ORIGIN =  0x20000000, LENGTH = 256k
     SCRATCH_X(rwx) : ORIGIN = 0x20040000, LENGTH = 4k
     SCRATCH_Y(rwx) : ORIGIN = 0x20041000, LENGTH = 4k
 }
+
+FLASH_USER_DATA_START = ORIGIN(FLASH_USER) ;
+FLASH_USER_DATA_END   = ORIGIN(FLASH_USER) + LENGTH(FLASH_USER) ;
 
 ENTRY(_entry_point)
 
@@ -116,6 +122,12 @@ SECTIONS
         *(.binary_info.*)
     } > FLASH
     __binary_info_end = .;
+
+    . = ALIGN(4096) ;
+
+    .user_data : {
+    } > FLASH_USER
+
     . = ALIGN(4);
 
    .ram_vector_table (NOLOAD): {
