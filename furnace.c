@@ -12,7 +12,9 @@
 #include "lwip/tcp.h"
 
 #include "spi_config.h"
-#include "max318xx.h"
+#if CONFIG_THERMO
+  #include "max318xx.h"
+#endif
 #include "logger.h"
 
 #include "basic_defines.h"
@@ -263,7 +265,7 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
                         "reboot            \t\t reboot device\n"
                         "pwm <0;50>        \t\t sets pwm\n"
                         "pwm               \t\t prints current pwm level\n"
-#if CONFIG_THERMO == pt100 || CONFIG_THERMO == Ktype
+#if CONFIG_THERMO
                         "temp <0;" STR(MAX_TEMP) ">     \t\t sets wanted temperature\n"
                         "temp              \t\t shows current wanted temperature\n"
                         "auto <0;1>        \t\t sets automatic pwm control, it is\n"
@@ -430,8 +432,10 @@ do_thermocouple_work(furnace_context_t *ctx, bool deadline_met)
   if (rdy)
     log_stdout_thermocouple(ctx->log_bits, "RDY: %d\n", (int) rdy);
 
+#if CONFIG_THERMO
   ctx->cur_temp = max318xx_read_temperature();
-#if CONFIG_THERMO == Ktype
+#endif
+#if CONFIG_THERMO == CONFIG_THERMO_KTYPE
   log_stdout_thermocouple(ctx->log_bits, "cold: %u\n", max318xx_read_cold_junction());
 #endif
   log_stdout_thermocouple(ctx->log_bits, "hot: %u\n", ctx->cur_temp);
@@ -619,7 +623,7 @@ main_work_loop(void)
     const absolute_time_t now = get_absolute_time();
     const bool deadline_met = now > ctx->update_deadline;
 
-#if CONFIG_THERMO == pt100 || CONFIG_THERMO == Ktype
+#if CONFIG_THERMO
     do_thermocouple_work(ctx, deadline_met);
 #endif
     do_tcp_work(ctx, deadline_met);
@@ -654,7 +658,7 @@ main_(void)
     DEBUG_printf("Connected.\n");
   }
 
-#if CONFIG_THERMO == pt100 || CONFIG_THERMO == Ktype
+#if CONFIG_THERMO
   const int max318xx_init_status = max318xx_init();
   if (max318xx_init_status) {
     DEBUG_printf("max318xx init failed with %d\n", max318xx_init_status);

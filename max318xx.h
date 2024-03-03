@@ -56,11 +56,10 @@ static inline uint8_t max318xx_write_reg8(uint8_t addr, uint8_t val)
   return dst[1];
 }
 
-
-#if CONFIG_THERMO == pt100
+#if CONFIG_THERMO == CONFIG_THERMO_PT100
   #include "max31865.h"
-#elif COFNIG_THERMO == Ktype
+#elif CONFIG_THERMO == CONFIG_THERMO_KTYPE
   #include "max31856.h"
-#else
+#elif CONFIG_THERMO >= 1
     #error "Invalid CONFIG_THERMO value"
 #endif
