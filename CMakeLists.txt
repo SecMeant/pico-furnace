@@ -30,6 +30,7 @@ target_link_libraries(furnace
         pico_stdlib
         )
 pico_add_extra_outputs(${PROJECT_NAME})
+pico_set_linker_script(${PROJECT_NAME} ${CMAKE_SOURCE_DIR}/memmap.ld)
 
 target_link_libraries(${PROJECT_NAME} pico_stdlib hardware_spi hardware_pwm)
 
