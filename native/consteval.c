@@ -1,6 +1,6 @@
 #include <stdio.h>
 
-#include "basic_defines.h"
+#include "common.h"
 
 static void
 prepare(FILE* fptr)
