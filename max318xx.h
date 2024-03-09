@@ -17,11 +17,6 @@
 
 void max318xx_spi_init(void);
 
-static inline bool max318xx_read_data_ready(void)
-{
-  return !gpio_get(FURNACE_MAX318xx_RDY);
-}
-
 static inline uint8_t max318xx_read_reg8(uint8_t addr)
 {
   const uint16_t len = 2;

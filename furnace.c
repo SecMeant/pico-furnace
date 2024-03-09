@@ -428,10 +428,6 @@ do_thermocouple_work(furnace_context_t *ctx, bool deadline_met)
   if (!deadline_met)
     return;
 
-  const bool rdy = gpio_get(FURNACE_MAX318xx_RDY);
-  if (rdy)
-    log_stdout_thermocouple(ctx->log_bits, "RDY: %d\n", (int) rdy);
-
 #if CONFIG_THERMO
   ctx->cur_temp = max318xx_read_temperature();
 #endif
