@@ -28,7 +28,7 @@
 #define STR_HELPER(X) #X
 
 /* GPIO for enabling and disabling heating of the furnace. */
-#define FURNACE_FIRE_PIN 21
+#define FURNACE_FIRE_PIN CONFIG_FURNACE_FIRE_PIN
 #define FURNACE_FIRE_PWM_SLICE pwm_gpio_to_slice_num(FURNACE_FIRE_PIN)
 #define FURNACE_FIRE_PWM_CHANNEL pwm_gpio_to_channel(FURNACE_FIRE_PIN)
 
