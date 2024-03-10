@@ -43,7 +43,9 @@ all: print_config build/ ninja
 ifneq ($(wildcard .config),)
 include .config
 else
+ifeq (,$(filter clean distclean,$(MAKECMDGOALS)))
 $(error Create .config file or use one from configs/)
+endif
 endif
 
 print_config:
