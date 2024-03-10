@@ -3,3 +3,6 @@ compile_commands.json
 wlan.ini
 .cache/
 consteval_header.h
+.config
+.cflags
+.cflags.prev
