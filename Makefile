@@ -66,6 +66,6 @@ flash: build/furnace.uf2
 clean:
 	rm -rf build/
 	rm -rf native/build/
-	rm consteval_header.h
+	rm -f consteval_header.h
 
 .PHONY: ninja flash clean pico_sdk
