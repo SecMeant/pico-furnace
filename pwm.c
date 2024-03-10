@@ -4,7 +4,7 @@
 
 #include "common.h" // for MAX_PWM
 
-#define PWM_DUTY ((uint16_t) 12500)
+#define PWM_DUTY ((uint16_t) 62500)
 #define PWM_SYSCLK_DIV ((uint8_t) 250)
 
 #define PWM_LEVEL_SCALE (PWM_DUTY / MAX_PWM)
@@ -52,14 +52,18 @@ set_pwm_safe(unsigned pin, furnace_context_t *ctx, unsigned new_pwm)
 /*
  * There is no way to set the frequency of the PWM directly, but we can use
  * sys_clk divider and duty cycle with properly scaled pwm level before being
- * set to get 40Hz PWM.
+ * set to get desired frequency defined PWM.
  *
- * We choose 40Hz because our SSR support max 50Hz and we just want to be safe.
+ * We choose 8Hz, because our SSR-based power supply circuitry can't output a
+ * proper sine wave when driven by higher frequency. There is something wrong
+ * with the hardware driving the PWM signal. For w workaround we just lower the
+ * frequency to 8Hz which was observed to give much better signal, despite
+ * refreshing at a slower rate.
  */
 static void
-pwm_config_freq_40hz(pwm_config *cfg)
+pwm_config_freq(pwm_config *cfg)
 {
-  _Static_assert(SYS_CLK_KHZ * 1000U == PWM_DUTY * PWM_SYSCLK_DIV * 40U);
+  _Static_assert(SYS_CLK_KHZ * 1000U == PWM_DUTY * PWM_SYSCLK_DIV * 8U);
 
   pwm_config_set_wrap(cfg, PWM_DUTY);
   pwm_config_set_clkdiv_int(cfg, PWM_SYSCLK_DIV);
@@ -75,7 +79,7 @@ init_pwm(void)
   pwm_set_irq_enabled(FURNACE_FIRE_PWM_SLICE, false);
 
   pwm_config cfg = pwm_get_default_config();
-  pwm_config_freq_40hz(&cfg);
+  pwm_config_freq(&cfg);
 
   pwm_set_gpio_level(FURNACE_FIRE_PIN, 0);
   pwm_init(FURNACE_FIRE_PWM_SLICE, &cfg, true);
