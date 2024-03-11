@@ -17,6 +17,14 @@ CONFIG_FURNACE_FIRE_PIN := 21
 
 TMP_CONFIG_FILE = /tmp/pico_furnace_config
 
+ifneq ($(wildcard .config),)
+include .config
+else
+ifeq (,$(filter clean distclean,$(MAKECMDGOALS)))
+$(error Create .config file or use one from configs/)
+endif
+endif
+
 ifeq ($(CONFIG_THERMO),ktype)
 	CONFIG_THERMO_INTERNAL=$(CONFVAL_THERMO_KTYPE)
 else ifeq ($(CONFIG_THERMO),pt100)
@@ -39,14 +47,6 @@ CFLAGS += -DCONFIG_WATER=${CONFIG_WATER}
 CFLAGS += -DCONFIG_FURNACE_FIRE_PIN=${CONFIG_FURNACE_FIRE_PIN}
 
 all: print_config build/ ninja
-
-ifneq ($(wildcard .config),)
-include .config
-else
-ifeq (,$(filter clean distclean,$(MAKECMDGOALS)))
-$(error Create .config file or use one from configs/)
-endif
-endif
 
 print_config:
 	$(foreach var,$(.VARIABLES),$(if $(filter CONFIG_%,$(var)),\
