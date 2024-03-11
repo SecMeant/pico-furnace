@@ -66,10 +66,6 @@ static inline void max318xx_config(void)
 
   max318xx_spi_init();
 
-  /* Configure GPIO pin that we can attach to RDY pin on MAX 318xx */
-  gpio_init(FURNACE_MAX318xx_RDY);
-  gpio_set_dir(FURNACE_MAX318xx_RDY, GPIO_IN);
-
   /* Enable automatic conversion mode, Vbias and 50Hz noise filter. */
   max318xx_write_reg8(MAX31865_REG_CONF, 0xC1);
 }
