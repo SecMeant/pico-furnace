@@ -569,7 +569,7 @@ do_pilot_work(furnace_context_t *ctx)
     unsigned pwm = ctx->pwm_level;
 
     ctx->pilot.last_temp = ctx->cur_temp;
-    ctx->pilot.pilot_deadline = make_timeout_time_ms(15000);
+    ctx->pilot.pilot_deadline = make_timeout_time_ms(CONFIG_PILOT_DELAY_S * 1000U);
 
     if(sign*diff <= 1)
       pwm += sign;
