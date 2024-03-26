@@ -43,12 +43,24 @@ typedef struct {
   uint16_t        recv_len; /* Received, valid bytes in recv_buffer */
 } tcp_context_t;
 
+#if CONFIG_AUTO == CONFIG_AUTO_PILOT || CONFIG_AUTO == CONFIG_AUTO_MAPPER
 typedef struct {
   absolute_time_t pilot_deadline;
   bool            is_enabled;
   int             des_temp;
   int             last_temp;
 } pilot_context_t;
+#endif
+
+#if CONFIG_AUTO == CONFIG_AUTO_MAPPER
+typedef struct {
+  absolute_time_t deadline;
+  bool            is_enabled;
+  int             max_pwm_temp;
+} mapper_context_t;
+
+  #define PWM_MAPPER_MINUTES 1
+#endif
 
 typedef struct {
   uint8_t  buffer[BUF_SIZE];
@@ -62,14 +74,16 @@ typedef struct {
   stdio_context_t stdio;
   uint8_t         log_bits;
 
+#if CONFIG_AUTO == CONFIG_AUTO_PILOT || CONFIG_AUTO == CONFIG_AUTO_MAPPER
   pilot_context_t       pilot;
+#endif
   uint8_t pwm_level;
 
 #if CONFIG_MAGNETRON
   uint8_t         pulse_count;
   absolute_time_t magnetron_deadline;
 #endif
-  
+
 #if CONFIG_WATER
   /*
    *    pwm_water value is stored using already biased value
@@ -81,6 +95,9 @@ typedef struct {
 
 #if CONFIG_SHUTTER
   shutter_context_t shutter;
+#endif
+#if CONFIG_AUTO == CONFIG_AUTO_MAPPER
+  mapper_context_t  mapper;
 #endif
 } furnace_context_t;
 
@@ -201,7 +218,9 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
   } else if (sscanf(buffer, "pwm %u", &arg) == 1) {
     const int res= set_pwm_safe(FURNACE_FIRE_PIN, ctx, arg);
     if (res == 0){
+#if CONFIG_AUTO == CONFIG_AUTO_PILOT || CONFIG_AUTO == CONFIG_AUTO_MAPPER
       ctx->pilot.is_enabled = 0;
+#endif
     } else if ( res == 1){
       const char msg[] = "pwm argument too big!\r\n";
       const size_t msg_len = sizeof(msg)-1;
@@ -215,7 +234,9 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
       const size_t msg_len = sizeof(msg)-1;
       feedback(msg, msg_len);
     }
-  } else if (strncmp(buffer, "auto\n", 5) == 0) {
+  }
+#if CONFIG_AUTO == CONFIG_AUTO_PILOT
+  else if (strncmp(buffer, "auto\n", 5) == 0) {
       char msg[16];
       const size_t msg_len = snprintf(msg, sizeof(msg), "auto = %d\r\n", ctx->pilot.is_enabled);
       feedback(msg, msg_len);
@@ -239,7 +260,9 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
     char msg[16];
     const size_t msg_len = snprintf(msg, sizeof(msg), "temp = %d\r\n", ctx->pilot.des_temp);
     feedback(msg, msg_len);
-  } else if (sscanf(buffer, "log %" STR(BUF_SIZE) "s %u", &str_arg, &arg) == 2) {
+  }
+#endif
+  else if (sscanf(buffer, "log %" STR(BUF_SIZE) "s %u", &str_arg, &arg) == 2) {
     if(arg >= 2) {
       const char msg[] = "log value too big!\r\n";
       const size_t msg_len = sizeof(msg)-1;
@@ -257,7 +280,7 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
                         "reboot            \t\t reboot device\n"
                         "pwm <0;50>        \t\t sets pwm\n"
                         "pwm               \t\t prints current pwm level\n"
-#if CONFIG_THERMO
+#if CONFIG_THERMO && CONFIG_AUTO == CONFIG_AUTO_PILOT
                         "temp <0;" STR(MAX_TEMP) ">     \t\t sets wanted temperature\n"
                         "temp              \t\t shows current wanted temperature\n"
                         "auto <0;1>        \t\t sets automatic pwm control, it is\n"
@@ -273,6 +296,13 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
                         "water <0:10>      \t\t sets pwm duty of water channel\n"
                         "water             \t\t shows current water pwm\n"
 #endif
+#if CONFIG_AUTO == CONFIG_AUTO_MAPPER
+                        "map <0;1>         \t\t sets automatic pwm mapping, it is\n"
+                        "                  \t\t checking max temperature on every pwm\n"
+                        "                  \t\t\t 0 - off\n"
+                        "                  \t\t\t 1 - on\n"
+                        "map               \t\t shows current map status\n"
+#endif
                         "log <option> <0;1>\t\t sets output level on stdio\n"
                         "                  \t\t\t options:\n"
                         "                  \t\t\t\t server,\n"
@@ -283,7 +313,7 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
                         "log               \t\t prints names of turned on log options\n";
     const size_t msg_len = sizeof(msg)-1;
     feedback(msg, msg_len);
-  } 
+  }
 #if CONFIG_MAGNETRON
   else if(sscanf(buffer, "pulse %u", &arg) == 1) {
     if(arg > 127){
@@ -325,6 +355,29 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
       ctx->shutter.time_ms = 1;
       ctx->shutter.intern_state = SHUTTER_OFF_OPTION;
     }
+  }
+#endif
+#if CONFIG_AUTO == CONFIG_AUTO_MAPPER
+  else if(sscanf(buffer, "map %u", &arg) == 1) {
+    if(arg > 1){
+      const char msg[] = "map argument needs to be 0 or 1\r\n";
+      const size_t msg_len = sizeof(msg)-1;
+      feedback(msg, msg_len);
+    } else {
+      if(ctx->cur_temp >= 40){
+        const char msg[] = "map can be started only at temperatures lower than 40\r\n";
+        const size_t msg_len = sizeof(msg)-1;
+        feedback(msg, msg_len);
+      } else {
+        ctx->pwm_level = 0;
+        ctx->pilot.is_enabled = false;
+        ctx->mapper.is_enabled = arg;
+      }
+    }
+  } else if(strncmp(buffer, "map\n", 4) == 0) {
+      char msg[16];
+      const size_t msg_len = snprintf(msg, sizeof(msg), "map = %d\r\n", ctx->mapper.is_enabled);
+      feedback(msg, msg_len);
   }
 #endif
 }
@@ -455,9 +508,19 @@ do_thermocouple_work(furnace_context_t *ctx, bool deadline_met)
 static int
 format_status(char* buffer, furnace_context_t* ctx)
 {
+#if CONFIG_AUTO == CONFIG_AUTO_NONE
+  return snprintf(
+      buffer,
+      FORMAT_STATUS_AUTO_NONE_SIZE,
+      FORMAT_STATUS_AUTO_NONE,
+      ctx->cur_temp,
+      ctx->pwm_level,
+      MAX_PWM
+      );
+#else
     return snprintf(
       buffer,
-      FORMAT_STATUS_SIZE,
+      FORMAT_STATUS_AUTO_PILOT_SIZE,
       FORMAT_STATUS_FMT,
       ctx->cur_temp,
       ctx->pilot.des_temp,
@@ -465,12 +528,33 @@ format_status(char* buffer, furnace_context_t* ctx)
       MAX_PWM,
       ctx->pilot.is_enabled
     );
+#endif
 }
+
+#if CONFIG_AUTO == CONFIG_AUTO_MAPPER
+
+static int
+format_mapper(char *buffer, furnace_context_t *ctx)
+{
+    return snprintf(
+      buffer,
+      MAPPER_STATUS_SIZE,
+      MAPPER_STATUS_FMT,
+      ctx->pwm_level,
+      ctx->mapper.max_pwm_temp
+    );
+}
+
+#endif
 
 void
 do_tcp_work(furnace_context_t *ctx, bool deadline_met)
 {
-  char temperature_str[FORMAT_STATUS_SIZE];
+#if CONFIG_AUTO == CONFIG_AUTO_NONE
+  char temperature_str[FORMAT_STATUS_AUTO_NONE_SIZE];
+#else
+  char temperature_str[FORMAT_STATUS_AUTO_PILOT_SIZE];
+#endif
 
   cyw43_arch_poll();
 
@@ -517,6 +601,7 @@ clamp_u8(int min, int max, int val)
   return value;
 }
 
+#if CONFIG_AUTO == CONFIG_AUTO_PILOT || CONFIG_AUTO == CONFIG_AUTO_MAPPER
 static void
 do_pilot_work(furnace_context_t *ctx)
 {
@@ -544,6 +629,7 @@ init_pilot(furnace_context_t *ctx)
   ctx->pilot.last_temp = 0;
   ctx->pilot.is_enabled = false;
 }
+#endif
 
 static void
 init_stdio(furnace_context_t* ctx)
@@ -577,7 +663,7 @@ do_stdio_work(furnace_context_t* ctx, bool deadline_met)
 {
   if(deadline_met)
   {
-    char buffer[FORMAT_STATUS_SIZE];
+    char buffer[FORMAT_STATUS_AUTO_PILOT_SIZE];
 
     format_status(buffer, ctx);
     log_stdout_basic(ctx->log_bits, buffer);
@@ -609,6 +695,95 @@ do_stdio_work(furnace_context_t* ctx, bool deadline_met)
   }
 }
 
+#if CONFIG_AUTO == CONFIG_AUTO_MAPPER
+
+static void
+mapper_deadline__(furnace_context_t *ctx)
+{
+  if(ctx->cur_temp > ctx->mapper.max_pwm_temp){
+    ctx->mapper.max_pwm_temp = ctx->cur_temp;
+    return;
+  }
+
+  char buffer[MAPPER_STATUS_SIZE];
+
+  const int size = format_mapper(buffer, ctx);
+  tcp_server_send_data(
+    ctx,
+    ctx->tcp.client_pcb,
+    (uint8_t*)buffer,
+    size
+  );
+
+  const unsigned pwm = ctx->pwm_level + 1;
+
+  const int res = set_pwm_safe(FURNACE_FIRE_PIN, ctx, pwm);
+
+  if( res == -1 ) {
+    const char msg[] = "set_pwm_safe: unexpected pin argument!\r\n";
+    const size_t msg_len = sizeof(msg)-1;
+    tcp_server_send_data(
+      ctx,
+      ctx->tcp.client_pcb,
+      (uint8_t*)buffer,
+      size
+    );
+  } else if ( res == 1 ) {
+    const char msg[] = "pwm_level has reached MAX_PWM, enabling auto and steering temp towards FALLBACK_TEMP!\r\n";
+    const size_t msg_len = sizeof(msg)-1;
+    tcp_server_send_data(
+      ctx,
+      ctx->tcp.client_pcb,
+      (uint8_t*)buffer,
+      size
+    );
+
+    ctx->mapper.is_enabled = false;
+    ctx->pilot.is_enabled = true;
+    ctx->pilot.des_temp = FALLBACK_TEMP;
+  }
+}
+
+static void
+mapper_deadline_(furnace_context_t *ctx)
+{
+  mapper_deadline__(ctx);
+  ctx->mapper.deadline = make_timeout_time_ms(PWM_MAPPER_MINUTES * 60 * 1000);
+}
+
+static void
+mapper_maxtemp_reached_(furnace_context_t *ctx)
+{
+  const char msg[] = "cur_temp has reached MAX_TEMP, enabling auto and steering temp towards FALLBACK_TEMP!\r\n";
+  const size_t msg_len = sizeof(msg)-1;
+  tcp_server_send_data(
+    ctx,
+    ctx->tcp.client_pcb,
+    (uint8_t*)msg,
+    msg_len
+  );
+
+  ctx->mapper.is_enabled = false;
+  ctx->pilot.is_enabled = true;
+  ctx->pilot.des_temp = FALLBACK_TEMP;
+}
+
+static void
+do_mapper_work(furnace_context_t *ctx)
+{
+  if(!ctx->mapper.is_enabled)
+    return;
+
+  if(ctx->cur_temp >= MAX_TEMP)
+    return mapper_maxtemp_reached_(ctx);
+
+  const bool deadline_met = get_absolute_time() > ctx->mapper.deadline;
+  if (deadline_met)
+    return mapper_deadline_(ctx);
+}
+
+#endif
+
 int
 main_work_loop(void)
 {
@@ -621,7 +796,9 @@ main_work_loop(void)
   }
 
   init_pwm();
+#if CONFIG_AUTO == CONFIG_AUTO_MAPPER || CONFIG_AUTO == CONFIG_AUTO_PILOT
   init_pilot(ctx);
+#endif
   init_stdio(ctx);
 
 #if CONFIG_MAGNETRON
@@ -639,9 +816,14 @@ main_work_loop(void)
 #endif
     do_tcp_work(ctx, deadline_met);
     do_stdio_work(ctx, deadline_met);
+#if CONFIG_AUTO == CONFIG_AUTO_PILOT || CONFIG_AUTO == CONFIG_AUTO_MAPPER
     do_pilot_work(ctx);
+#endif
 #if CONFIG_SHUTTER
     do_shutter_work(&ctx->shutter);
+#endif
+#if CONFIG_AUTO == CONFIG_AUTO_MAPPER
+    do_mapper_work(ctx);
 #endif
 
     if (deadline_met)
