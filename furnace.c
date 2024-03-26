@@ -46,6 +46,16 @@ typedef struct {
   int             last_temp;
 } pilot_context_t;
 
+#if CONFIG_PWM_MAPPER
+typedef struct {
+  absolute_time_t mapper_deadline;
+  bool            is_enabled;
+  int             max_pwm_temp;
+} mapper_context_t;
+
+  #define MAPPER_MINUTES 1
+#endif
+
 typedef struct {
   uint8_t  buffer[BUF_SIZE];
   uint8_t* parser;
@@ -65,7 +75,7 @@ typedef struct {
   uint8_t         pulse_count;
   absolute_time_t magnetron_deadline;
 #endif
-  
+
 #if CONFIG_WATER
   /*
    *    pwm_water value is stored using already biased value
@@ -73,6 +83,10 @@ typedef struct {
    *    any value outside that range is a bug.
    */
   uint8_t pwm_water;
+#endif
+
+#if CONFIG_PWM_MAPPER
+  mapper_context_t  mapper;
 #endif
 } furnace_context_t;
 
@@ -233,6 +247,7 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
       const size_t msg_len = sizeof(msg)-1;
       feedback(msg, msg_len);
     } else {
+      ctx->mapper.is_enabled = false;
       ctx->pilot.is_enabled = arg;
     }
   } else if (sscanf(buffer, "temp %u", &arg) == 1) {
@@ -310,6 +325,29 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
     char msg[16];
     const size_t msg_len = snprintf(msg, sizeof(msg), "water = %d\r\n", ctx->pwm_water);
     feedback(msg, msg_len);
+  }
+#endif
+#if CONFIG_PWM_MAPPER
+  else if(sscanf(buffer, "map %u", &arg) == 1) {
+    if(arg > 1){
+      const char msg[] = "auto argument needs to be 0 or 1\r\n";
+      const size_t msg_len = sizeof(msg)-1;
+      feedback(msg, msg_len);
+    } else {
+      if(ctx->cur_temp >= 40){
+        const char msg[] = "map can be started only at temperatures lower than 40\r\n";
+        const size_t msg_len = sizeof(msg)-1;
+        feedback(msg, msg_len);
+      } else {
+        ctx->pwm_level = 0;
+        ctx->pilot.is_enabled = false;
+        ctx->mapper.is_enabled = true;
+      }
+    }
+  } else if(strncmp(buffer, "map\n", 4) == 0) {
+      char msg[16];
+      const size_t msg_len = snprintf(msg, sizeof(msg), "map = %d\r\n", ctx->pilot.is_enabled);
+      feedback(msg, msg_len);
   }
 #endif
 }
@@ -451,6 +489,22 @@ format_status(char* buffer, furnace_context_t* ctx)
       ctx->pilot.is_enabled
     );
 }
+
+#if CONFIG_PWM_MAPPER
+
+static int
+format_mapper(char *buffer, furnace_context_t *ctx)
+{
+    return snprintf(
+      buffer,
+      MAPPER_STATUS_SIZE,
+      MAPPER_STATUS_FMT,
+      ctx->pwm_level,
+      ctx->mapper.max_pwm_temp
+    );
+}
+
+#endif
 
 void
 do_tcp_work(furnace_context_t *ctx, bool deadline_met)
@@ -594,6 +648,77 @@ do_stdio_work(furnace_context_t* ctx, bool deadline_met)
   }
 }
 
+#if CONFIG_PWM_MAPPER
+
+static void
+do_mapper_work(furnace_context_t *ctx)
+{
+  const bool deadline_met = get_absolute_time() > ctx->mapper.mapper_deadline;
+  if(ctx->mapper.is_enabled){
+    if(ctx->cur_temp >= MAX_TEMP){
+      const char msg[] = "cur_temp has reached MAX_TEMP, enabling auto and steering temp towards FALLBACK_TEMP!\r\n";
+      const size_t msg_len = sizeof(msg)-1;
+      tcp_server_send_data(
+        ctx,
+        ctx->tcp.client_pcb,
+        (uint8_t*)msg,
+        msg_len
+      );
+
+      ctx->mapper.is_enabled = false;
+      ctx->pilot.is_enabled = true;
+      ctx->pilot.des_temp = FALLBACK_TEMP;
+    } else if (deadline_met){
+      if(ctx->cur_temp <= ctx->mapper.max_pwm_temp){
+        char buffer[MAPPER_STATUS_SIZE];
+
+        const int size = format_mapper(buffer, ctx);
+        tcp_server_send_data(
+          ctx,
+          ctx->tcp.client_pcb,
+          (uint8_t*)buffer,
+          size
+        );
+
+        unsigned pwm = ctx->pwm_level + 1;
+
+        int res = set_pwm_safe(FURNACE_FIRE_PIN, ctx, pwm);
+
+        if( res == -1 ) {
+          const char msg[] = "set_pwm_safe: unexpected pin argument!\r\n";
+          const size_t msg_len = sizeof(msg)-1;
+          tcp_server_send_data(
+            ctx,
+            ctx->tcp.client_pcb,
+            (uint8_t*)buffer,
+            size
+          );
+        } else if ( res == 1 ) {
+          const char msg[] = "pwm_level has reached MAX_PWM, enabling auto and steering temp towards FALLBACK_TEMP!\r\n";
+          const size_t msg_len = sizeof(msg)-1;
+          tcp_server_send_data(
+            ctx,
+            ctx->tcp.client_pcb,
+            (uint8_t*)buffer,
+            size
+          );
+
+          ctx->mapper.is_enabled = false;
+          ctx->pilot.is_enabled = true;
+          ctx->pilot.des_temp = FALLBACK_TEMP;
+        }
+        ctx->mapper.max_pwm_temp -= 10;
+      } else {
+        ctx->mapper.max_pwm_temp = ctx->cur_temp;
+      }
+
+      ctx->mapper.mapper_deadline = make_timeout_time_ms(MAPPER_MINUTES * 60 * 1000);
+    }
+  }
+}
+
+#endif
+
 int
 main_work_loop(void)
 {
@@ -625,6 +750,9 @@ main_work_loop(void)
     do_tcp_work(ctx, deadline_met);
     do_stdio_work(ctx, deadline_met);
     do_pilot_work(ctx);
+#if CONFIG_PWM_MAPPER
+    do_mapper_work(ctx);
+#endif
 
     if (deadline_met)
       ctx->update_deadline = make_timeout_time_ms(1000);
