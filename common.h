@@ -7,3 +7,8 @@
 #define MAX_AUTO 1
 
 #define FORMAT_STATUS_FMT "temp:%d/%d, pwm:%u/%u, auto:%d\n"
+
+#if CONFIG_PWM_MAPPER
+  #define MAPPER_STATUS_FMT     "!!! pwm:%u, max_temp:%d !!!\n"
+  #define FALLBACK_TEMP         MAX_TEMP - 400
+#endif

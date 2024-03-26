@@ -15,11 +15,23 @@ calculate_status_size(FILE* fptr)
   fprintf(fptr, "#define FORMAT_STATUS_SIZE %u\n", size);
 }
 
+#if CONFIG_PWM_MAPPER
+static void
+calculate_mapper_size(FILE* fptr)
+{
+  const size_t size = snprintf(0, 0, MAPPER_STATUS_FMT, MAX_PWM, MAX_TEMP) + 1;
+  fprintf(fptr, "#define MAPPER_STATUS_SIZE %u\n", size);
+}
+#endif
+
 int
 main()
 {
   FILE* fptr = fopen(CONSTEVAL_HEADER, "w");
   prepare(fptr);
   calculate_status_size(fptr);
+#if CONFIG_PWM_MAPPER
+  calculate_mapper_size(fptr);
+#endif
   fclose(fptr);
 }
