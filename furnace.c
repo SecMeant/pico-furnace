@@ -85,6 +85,12 @@ typedef struct {
   uint8_t pwm_water;
 #endif
 
+#if CONFIG_SHUTTER
+  absolute_time_t   shutter_deadline;
+  uint16_t          shutter_time_ms; 
+  uint8_t           shutter_intern_count;
+#endif
+
 #if CONFIG_PWM_MAPPER
   mapper_context_t  mapper;
 #endif
@@ -94,6 +100,11 @@ typedef struct {
   #define WATER_PIN 12
   #define WATER_PIN_SLICE pwm_gpio_to_slice_num(WATER_PIN)
   #define WATER_OFFSET 40
+#endif
+
+#if CONFIG_SHUTTER
+  #define SHUTTER_PIN 0
+  #define SHUTTER_PIN_SLICE pwm_gpio_to_slice_num(SHUTTER_PIN)
 #endif
 
 #include "pwm.c"
@@ -352,6 +363,21 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
       feedback(msg, msg_len);
   }
 #endif
+#if CONFIG_SHUTTER
+  else if(sscanf(buffer, "shutter %u", &arg) == 1){
+    ctx->shutter_time_ms = arg;
+    char msg[16];
+    const size_t msg_len = snprintf(msg, sizeof(msg), "shutter = %u\r\n", ctx->shutter_time_ms);
+  } else if (sscanf(buffer, "shutter %s", str_arg) == 1) {
+    if(strncmp(str_arg, "on", 2) == 0){
+      ctx->shutter_time_ms = 1;
+      ctx->shutter_intern_count = SHUTTER_ON_OPTION;
+    }else if ((strncmp(str_arg, "off", 3) == 0)){
+      ctx->shutter_time_ms = 1;
+      ctx->shutter_intern_count = SHUTTER_OFF_OPTION;
+    }
+  }
+#endif
 }
 
 static void
@@ -535,6 +561,52 @@ do_tcp_work(furnace_context_t *ctx, bool deadline_met)
   }
 
 }
+
+#if CONFIG_SHUTTER
+void
+do_shutter_work(furnace_context_t *ctx)
+{
+  if(ctx->shutter_time_ms != 0){
+    const bool deadline_met = get_absolute_time() > ctx->shutter_deadline;
+    if(deadline_met){
+      switch(ctx->shutter_intern_count){
+        case 0:
+          pwm_set_gpio_level(SHUTTER_PIN, SHUTTER_ON);
+          pwm_set_enabled(SHUTTER_PIN_SLICE, true);
+          ctx->shutter_deadline = make_timeout_time_ms(SHUTTER_DELAY_MS);
+          break;
+        case 1:
+          ctx->shutter_deadline = make_timeout_time_ms(ctx->shutter_time_ms);
+          pwm_set_enabled(SHUTTER_PIN_SLICE, false);
+          break;
+        case 2:
+          pwm_set_gpio_level(SHUTTER_PIN, SHUTTER_OFF);
+          pwm_set_enabled(SHUTTER_PIN_SLICE, true);
+          ctx->shutter_deadline = make_timeout_time_ms(SHUTTER_DELAY_MS);
+          break;
+        case 3:
+          pwm_set_enabled(SHUTTER_PIN_SLICE, false);
+          ctx->shutter_time_ms = 0;
+          break;
+        case 4:
+          pwm_set_enabled(SHUTTER_PIN_SLICE, true);
+          pwm_set_gpio_level(SHUTTER_PIN, SHUTTER_OFF);
+          ctx->shutter_intern_count = 2;
+          ctx->shutter_deadline = make_timeout_time_ms(SHUTTER_DELAY_MS);
+          break;
+        case 5:
+          pwm_set_enabled(SHUTTER_PIN_SLICE, true);
+          pwm_set_gpio_level(SHUTTER_PIN, SHUTTER_ON);
+          ctx->shutter_intern_count = 2;
+          ctx->shutter_deadline = make_timeout_time_ms(SHUTTER_DELAY_MS);
+          break;
+      }
+    ctx->shutter_intern_count = (ctx->shutter_intern_count + 1) % 4;
+    }
+  }
+}
+
+#endif
 
 static inline int
 sgn(int val_1, int val_2)
@@ -754,6 +826,9 @@ main_work_loop(void)
     do_pilot_work(ctx);
 #if CONFIG_PWM_MAPPER
     do_mapper_work(ctx);
+#endif
+#if CONFIG_SHUTTER
+    do_shutter_work(ctx);
 #endif
 
     if (deadline_met)
