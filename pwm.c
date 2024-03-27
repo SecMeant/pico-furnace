@@ -94,5 +94,17 @@ init_pwm(void)
   pwm_set_gpio_level(WATER_PIN, 0);
   pwm_init(WATER_PIN_SLICE, &water_cfg, true);
 #endif
-}
 
+#if CONFIG_SHUTTER
+  gpio_set_function(SHUTTER_PIN, GPIO_FUNC_PWM);
+  pwm_set_irq_enabled(SHUTTER_PIN_SLICE, false);
+
+  pwm_config shutter_cfg = pwm_get_default_config();
+  pwm_config_set_wrap(&shutter_cfg, SHUTTER_PWM_DUTY);
+  pwm_config_set_clkdiv_int(&shutter_cfg, SHUTTER_PWM_SYSCLK_DIV);
+  pwm_config_set_clkdiv_mode(&shutter_cfg, PWM_DIV_FREE_RUNNING);
+
+  pwm_set_gpio_level(SHUTTER_PIN, 0);
+  pwm_init(SHUTTER_PIN_SLICE, &shutter_cfg, false);
+#endif
+}

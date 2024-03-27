@@ -32,6 +32,10 @@
 #define FURNACE_FIRE_PWM_SLICE pwm_gpio_to_slice_num(FURNACE_FIRE_PIN)
 #define FURNACE_FIRE_PWM_CHANNEL pwm_gpio_to_channel(FURNACE_FIRE_PIN)
 
+#if CONFIG_SHUTTER
+  #include "shutter.c"
+#endif
+
 typedef struct {
   struct tcp_pcb* server_pcb;
   struct tcp_pcb* client_pcb;
@@ -73,6 +77,10 @@ typedef struct {
    *    any value outside that range is a bug.
    */
   uint8_t pwm_water;
+#endif
+
+#if CONFIG_SHUTTER
+  shutter_context_t shutter;
 #endif
 } furnace_context_t;
 
@@ -310,6 +318,29 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
     char msg[16];
     const size_t msg_len = snprintf(msg, sizeof(msg), "water = %d\r\n", ctx->pwm_water);
     feedback(msg, msg_len);
+  }
+#endif
+#if CONFIG_SHUTTER
+  else if(sscanf(buffer, "shutter %u", &arg) == 1){
+    if(arg > MAX_SHUTTER_MS){
+      const char msg[] = "time argument too big !!!\r\n";
+      const size_t msg_len = sizeof(msg)-1;
+      feedback(msg, msg_len);
+    } else if(ctx->shutter.time_ms == 0){
+      ctx->shutter.time_ms = arg;
+    } else{
+      const char msg[] = "shutter already in work \n";
+      const size_t msg_len = sizeof(msg)-1;
+      feedback(msg, msg_len);
+    }
+  } else if(sscanf(buffer, "shutter %s", str_arg) == 1) {
+    if(strncmp(str_arg, "on", 2) == 0){
+      ctx->shutter.time_ms = 1;
+      ctx->shutter.intern_state = SHUTTER_ON_OPTION;
+    }else if((strncmp(str_arg, "off", 3) == 0)){
+      ctx->shutter.time_ms = 1;
+      ctx->shutter.intern_state = SHUTTER_OFF_OPTION;
+    }
   }
 #endif
 }
@@ -625,6 +656,9 @@ main_work_loop(void)
     do_tcp_work(ctx, deadline_met);
     do_stdio_work(ctx, deadline_met);
     do_pilot_work(ctx);
+#if CONFIG_SHUTTER
+    do_shutter_work(&ctx->shutter);
+#endif
 
     if (deadline_met)
       ctx->update_deadline = make_timeout_time_ms(1000);
