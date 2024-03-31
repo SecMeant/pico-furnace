@@ -166,7 +166,7 @@ handle_command_water(furnace_context_t* ctx, void (*feedback)(const char *, cons
       return;
     }
 
-    const int pwm_value = arg + WATER_OFFSET;
+    const int pwm_value = arg == 0 ? 0 : arg + WATER_OFFSET;
     const int res = set_pwm_safe(WATER_PIN, ctx, pwm_value);
 
     if(res == 0)
