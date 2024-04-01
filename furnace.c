@@ -87,7 +87,6 @@ typedef struct {
 #if CONFIG_WATER
   #define WATER_PIN 12
   #define WATER_PIN_SLICE pwm_gpio_to_slice_num(WATER_PIN)
-  #define WATER_OFFSET 40
 #endif
 
 #include "pwm.c"
@@ -160,22 +159,7 @@ tcp_server_recv_(furnace_context_t *ctx, struct tcp_pcb* tpcb, struct pbuf* p)
 #if CONFIG_WATER
 static void
 handle_command_water(furnace_context_t* ctx, void (*feedback)(const char *, const size_t), unsigned arg) {
-    if(arg < 0){
-      const char msg[] = "water pwm argument too small!\r\n";
-      const size_t msg_len = sizeof(msg)-1;
-      feedback(msg, msg_len);
-      return;
-    }
-
-    if(arg > 10){
-      const char msg[] = "water pwm argument too big!\r\n";
-      const size_t msg_len = sizeof(msg)-1;
-      feedback(msg, msg_len);
-      return;
-    }
-
-    const int pwm_value = arg == 0 ? 0 : arg + WATER_OFFSET;
-    const int res = set_pwm_safe(WATER_PIN, ctx, pwm_value);
+    const int res = set_pwm_safe(WATER_PIN, ctx, arg);
 
     if(res == 0)
       return;

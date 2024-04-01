@@ -30,7 +30,8 @@ set_pwm_safe(unsigned pin, furnace_context_t *ctx, unsigned new_pwm)
     case WATER_PIN:
       ctx->pwm_water = new_pwm;
 
-      pwm_set_gpio_level(WATER_PIN, new_pwm);
+      const unsigned water_new_pwm_scaled = pwm_scale_level(new_pwm);
+      pwm_set_gpio_level(WATER_PIN, water_new_pwm_scaled);
       break;
 #endif
 
@@ -89,7 +90,7 @@ init_pwm(void)
   pwm_set_irq_enabled(WATER_PIN_SLICE, false);
 
   pwm_config water_cfg = pwm_get_default_config();
-  pwm_config_set_wrap(&water_cfg, MAX_PWM);
+  pwm_config_freq(&water_cfg);
 
   pwm_set_gpio_level(WATER_PIN, 0);
   pwm_init(WATER_PIN_SLICE, &water_cfg, true);
