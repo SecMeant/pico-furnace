@@ -36,6 +36,9 @@ set_pwm_safe(unsigned pin, furnace_context_t *ctx, unsigned new_pwm)
 #endif
 
     case FURNACE_FIRE_PIN:
+      if (new_pwm > ctx->ceiling_pwm)
+              new_pwm = ctx->ceiling_pwm;
+
       ctx->pwm_level = new_pwm;
 
       const unsigned new_pwm_scaled = pwm_scale_level(new_pwm);

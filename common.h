@@ -6,7 +6,7 @@
 #define MAX_PWM ((unsigned int)(CONFIG_MAX_PWM))
 #define MAX_AUTO 1
 
-#define FORMAT_STATUS_FMT "temp:%d/%d, pwm:%u/%u, auto:%d\n"
+#define FORMAT_STATUS_FMT "temp:%d/%d, pwm:%u/%u/%u, auto:%d\n"
 
 #if CONFIG_AUTO == CONFIG_AUTO_MAPPER
 /*

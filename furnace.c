@@ -79,6 +79,15 @@ typedef struct {
 #endif
   uint8_t pwm_level;
 
+  /*
+   * Similar to MAX_PWM, but can be lowered at runtime to
+   * make pwm never reach certain levels.
+   *
+   * This always holds true:
+   *     pwm_level <= ceiling_pwm <= MAX_PWM
+   */
+  int             ceiling_pwm;
+
 #if CONFIG_MAGNETRON
   uint8_t         pulse_count;
   absolute_time_t magnetron_deadline;
@@ -201,6 +210,20 @@ handle_command_water(furnace_context_t* ctx, void (*feedback)(const char *, cons
 }
 #endif
 
+static int
+set_max_pwm_safe(furnace_context_t *ctx, int new_max_pwm)
+{
+    if (new_max_pwm > MAX_PWM)
+      return 1;
+
+    if (ctx->pwm_level > new_max_pwm)
+      ctx->pwm_level = new_max_pwm;
+
+    ctx->ceiling_pwm = new_max_pwm;
+
+    return 0;
+}
+
 static void
 command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const char*, const size_t))
 {
@@ -211,6 +234,13 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
 
   if (memcmp(buffer, "reboot", 6) == 0) {
     reset_usb_boot(0,0);
+  } else if (sscanf(buffer, "max_pwm %u", &arg) == 1) {
+    const int res = set_max_pwm_safe(ctx, arg);
+    if (res == 1) {
+      const char msg[] = "pwm argument too big!\r\n";
+      const size_t msg_len = sizeof(msg)-1;
+      feedback(msg, msg_len);
+    }
   } else if (strncmp(buffer, "pwm\n", 4) == 0) {
       char msg[16];
       const size_t msg_len = snprintf(msg, sizeof(msg), "pwm = %d\r\n", ctx->pwm_level);
@@ -525,6 +555,7 @@ format_status(char* buffer, furnace_context_t* ctx)
       ctx->cur_temp,
       ctx->pilot.des_temp,
       ctx->pwm_level,
+      ctx->ceiling_pwm,
       MAX_PWM,
       ctx->pilot.is_enabled
     );
@@ -599,6 +630,14 @@ clamp_u8(int min, int max, int val)
     value = max;
 
   return value;
+}
+
+static void
+init_furnace(furnace_context_t *ctx)
+{
+  memset(ctx, 0, sizeof(*ctx));
+
+  ctx->ceiling_pwm = MAX_PWM;
 }
 
 #if CONFIG_AUTO == CONFIG_AUTO_PILOT || CONFIG_AUTO == CONFIG_AUTO_MAPPER
@@ -789,13 +828,14 @@ main_work_loop(void)
 {
   furnace_context_t* ctx;
 
-  ctx = calloc(1, sizeof(furnace_context_t));
+  ctx = malloc(sizeof(*ctx));
 
   if (!ctx) {
     return 1;
   }
 
   init_pwm();
+  init_furnace(ctx);
 #if CONFIG_AUTO == CONFIG_AUTO_MAPPER || CONFIG_AUTO == CONFIG_AUTO_PILOT
   init_pilot(ctx);
 #endif
