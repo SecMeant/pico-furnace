@@ -644,21 +644,25 @@ init_furnace(furnace_context_t *ctx)
 static void
 do_pilot_work(furnace_context_t *ctx)
 {
+  if (!ctx->pilot.is_enabled)
+    return;
+
   const bool deadline_met = get_absolute_time() > ctx->pilot.pilot_deadline;
 
-  if(deadline_met && ctx->pilot.is_enabled){
-    const int diff = ctx->cur_temp - ctx->pilot.last_temp;
-    const int sign = sgn(ctx->cur_temp, ctx->pilot.des_temp);
-    unsigned pwm = ctx->pwm_level;
+  if (!deadline_met)
+    return;
 
-    ctx->pilot.last_temp = ctx->cur_temp;
-    ctx->pilot.pilot_deadline = make_timeout_time_ms(CONFIG_FURNACE_DEADLINE_MS);
+  const int diff = ctx->cur_temp - ctx->pilot.last_temp;
+  const int sign = sgn(ctx->cur_temp, ctx->pilot.des_temp);
+  unsigned pwm = ctx->pwm_level;
 
-    if(sign*diff <= 1)
-      pwm += sign;
+  ctx->pilot.last_temp = ctx->cur_temp;
+  ctx->pilot.pilot_deadline = make_timeout_time_ms(CONFIG_FURNACE_DEADLINE_MS);
 
-    set_pwm_safe(FURNACE_FIRE_PIN, ctx, pwm);
-  }
+  if(sign*diff <= 1)
+    pwm += sign;
+
+  set_pwm_safe(FURNACE_FIRE_PIN, ctx, pwm);
 }
 
 void
