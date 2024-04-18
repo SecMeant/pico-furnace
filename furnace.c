@@ -153,7 +153,7 @@ tcp_server_close(furnace_context_t* ctx)
   return err;
 }
 
-err_t
+static err_t
 tcp_server_send_data(furnace_context_t* ctx,
                      struct tcp_pcb*    tpcb,
                      const uint8_t*     data,
@@ -162,7 +162,7 @@ tcp_server_send_data(furnace_context_t* ctx,
   return tcp_write(tpcb, data, size, TCP_WRITE_FLAG_COPY);
 }
 
-void
+static void
 tcp_server_recv_(furnace_context_t *ctx, struct tcp_pcb* tpcb, struct pbuf* p)
 {
   log_stdout_server(ctx->log_bits, "tcp_server_recv %d\n", p->tot_len);
@@ -520,7 +520,7 @@ tcp_server_open(void* ctx_)
   return true;
 }
 
-void
+static void
 do_thermocouple_work(furnace_context_t *ctx, bool deadline_met)
 {
   if (!deadline_met)
@@ -578,7 +578,7 @@ format_mapper(char *buffer, furnace_context_t *ctx)
 
 #endif
 
-void
+static void
 do_tcp_work(furnace_context_t *ctx, bool deadline_met)
 {
 #if CONFIG_AUTO == CONFIG_AUTO_NONE
@@ -665,7 +665,7 @@ do_pilot_work(furnace_context_t *ctx)
   set_pwm_safe(FURNACE_FIRE_PIN, ctx, pwm);
 }
 
-void
+static void
 init_pilot(furnace_context_t *ctx)
 {
   ctx->pilot.des_temp = 0;
@@ -701,7 +701,7 @@ stdio_command_handler(furnace_context_t* ctx)
   command_handler(ctx, ctx->stdio.buffer, &send_stdio);
 }
 
-void
+static void
 do_stdio_work(furnace_context_t* ctx, bool deadline_met)
 {
   if(deadline_met)
@@ -827,7 +827,7 @@ do_mapper_work(furnace_context_t *ctx)
 
 #endif
 
-int
+static int
 main_work_loop(void)
 {
   furnace_context_t* ctx;
@@ -885,7 +885,7 @@ main_work_loop(void)
 
 int spi_main(void);
 
-int
+static int
 main_(void)
 {
   DEBUG_printf("Connecting to Wi-Fi...\n");
