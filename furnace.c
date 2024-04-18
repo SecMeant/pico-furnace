@@ -652,6 +652,7 @@ do_pilot_work(furnace_context_t *ctx)
   if (!deadline_met)
     return;
 
+  const int min_increase_rate = 1;
   const int diff = ctx->cur_temp - ctx->pilot.last_temp;
   const int sign = sgn(ctx->cur_temp, ctx->pilot.des_temp);
   unsigned pwm = ctx->pwm_level;
@@ -659,7 +660,12 @@ do_pilot_work(furnace_context_t *ctx)
   ctx->pilot.last_temp = ctx->cur_temp;
   ctx->pilot.pilot_deadline = make_timeout_time_ms(CONFIG_FURNACE_DEADLINE_MS);
 
-  if(sign*diff <= 1)
+  /*
+   * If going in the wrong direction
+   * or going in the good direction,
+   * but slowly - nudge the PWM.
+   */
+  if(sign*diff <= min_increase_rate)
     pwm += sign;
 
   set_pwm_safe(FURNACE_FIRE_PIN, ctx, pwm);
