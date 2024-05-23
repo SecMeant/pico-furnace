@@ -224,6 +224,14 @@ set_max_pwm_safe(furnace_context_t *ctx, int new_max_pwm)
     return 0;
 }
 
+#if CONFIG_STIRRER
+static void
+set_stirrer(bool opt)
+{
+  gpio_put(STIRRER_PIN, opt);
+}
+#endif
+
 static void
 command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const char*, const size_t))
 {
@@ -408,6 +416,17 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
       char msg[16];
       const size_t msg_len = snprintf(msg, sizeof(msg), "map = %d\r\n", ctx->mapper.is_enabled);
       feedback(msg, msg_len);
+  }
+#endif
+#if CONFIG_STIRRER
+  else if(sscanf(buffer, "stir %u", &arg) == 1){
+    if(arg > 1){
+      const char msg[] = "stir argument needs to be 0 or 1\r\n";
+      const size_t msg_len = sizeof(msg)-1;
+      feedback(msg, msg_len);
+    } else {
+      set_stirrer((bool) arg);
+    }
   }
 #endif
 }
@@ -680,6 +699,15 @@ init_pilot(furnace_context_t *ctx)
 }
 #endif
 
+#if CONFIG_STIRRER
+static void
+init_stirrer(void)
+{
+  gpio_init(STIRRER_PIN);
+  gpio_set_dir(STIRRER_PIN, GPIO_OUT);
+}
+#endif
+
 static void
 init_stdio(furnace_context_t* ctx)
 {
@@ -853,6 +881,10 @@ main_work_loop(void)
 
 #if CONFIG_MAGNETRON
   init_magnetron(ctx);
+#endif
+
+#if CONFIG_STIRRER
+  init_stirrer();
 #endif
 
   cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
