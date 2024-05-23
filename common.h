@@ -22,3 +22,7 @@
 #if CONFIG_AUTO == CONFIG_AUTO_NONE
   #define FORMAT_STATUS_AUTO_NONE "temp:%d, pwm:%u/%u\n"
 #endif
+
+#if CONFIG_STIRRER
+  #define STIRRER_PIN 27
+#endif
