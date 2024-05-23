@@ -1,3 +1,4 @@
+#include "spin_coater_dshot.h"
 #include <time.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +18,8 @@
 #endif
 #include "logger.h"
 
+#include "spin_coater.h"
+
 #include "common.h"
 #include CONSTEVAL_HEADER
 
@@ -26,6 +29,8 @@
 
 #define STR(X) STR_HELPER(X)
 #define STR_HELPER(X) #X
+
+#define MILLISECONDS_PER_SECOND 1000
 
 /* GPIO for enabling and disabling heating of the furnace. */
 #define FURNACE_FIRE_PIN CONFIG_FURNACE_FIRE_PIN
@@ -93,6 +98,11 @@ typedef struct {
   absolute_time_t magnetron_deadline;
 #endif
 
+#if CONFIG_SPIN_COATER
+absolute_time_t spin_coater_rpm_log_deadline;
+absolute_time_t spin_coater_throttle_value_update_deadline;
+#endif
+
 #if CONFIG_WATER
   /*
    *    pwm_water value is stored using already biased value
@@ -108,7 +118,17 @@ typedef struct {
 #if CONFIG_AUTO == CONFIG_AUTO_MAPPER
   mapper_context_t  mapper;
 #endif
+
+#if CONFIG_SPIN_COATER
+  spin_coater_context_t spin_coater;
+#endif
 } furnace_context_t;
+
+static err_t
+tcp_server_send_data(furnace_context_t* ctx,
+                     struct tcp_pcb*    tpcb,
+                     const uint8_t*     data,
+                     u16_t              size);
 
 #if CONFIG_WATER
   #define WATER_PIN 12
@@ -119,6 +139,10 @@ typedef struct {
 
 #if CONFIG_MAGNETRON
   #include "magnetron.c"
+#endif
+
+#if CONFIG_SPIN_COATER
+  #include "spin_coater.c"
 #endif
 
 int
@@ -227,14 +251,114 @@ set_max_pwm_safe(furnace_context_t *ctx, int new_max_pwm)
 static void
 command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const char*, const size_t))
 {
-  unsigned arg;
+  unsigned arg, arg2;
   char     str_arg[BUF_SIZE];
 
   if (buffer[0] == '\n') return;
 
   if (memcmp(buffer, "reboot", 6) == 0) {
     reset_usb_boot(0,0);
-  } else if (sscanf(buffer, "max_pwm %u", &arg) == 1) {
+  } 
+#if CONFIG_SPIN_COATER 
+#if CONFIG_SPIN_COATER == CONFIG_SPIN_COATER_PWM
+  else if (sscanf(buffer, "spin_pwm %u", &arg) == 1) {
+      const int ret = set_spin_coater_pwm_safe(ctx, arg);
+      if (ret) {
+        char msg[BUF_SIZE];
+        const size_t msg_len =
+          snprintf(msg,
+                  sizeof(msg),
+                  "pwm argument out of scope, should be [%d; %d]!\r\n",
+                  SPIN_COATER_PWM_490_FREQ_DUTY_MIN,
+                  SPIN_COATER_PWM_490_FREQ_DUTY_MAX);
+        feedback(msg, msg_len);
+        DEBUG_printf("Chaning PWM duty failed\n");
+        return;
+      }
+      if (arg == PWM_IDLE_DUTY) {
+        ctx->spin_coater.spin_state = SPIN_IDLE;
+        cancel_alarm(ctx->spin_coater.timer_id);
+        const char msg[] = "spin stopped\r\n";
+        feedback(msg, sizeof(msg)-1);
+      } else {
+        ctx->spin_coater.spin_state = SPIN_STARTED_WITH_FORCE_VALUE;
+      }
+  }
+#elif CONFIG_SPIN_COATER == CONFIG_SPIN_COATER_DSHOT
+  else if (sscanf(buffer, "spin_dshot %u", &arg) == 1) {
+      const int ret = set_dshot_safe(ctx, arg);
+      if (ret) {
+        char msg[BUF_SIZE];
+        const size_t msg_len =
+          snprintf(msg,
+                  sizeof(msg),
+                  "dshot argument out of scope, should be [%d; %d]!\r\n",
+                  SPIN_COATER_MIN_THROTTLE_COMMAND,
+                  SPIN_COATER_MAX_THROTTLE_COMMAND);
+        feedback(msg, msg_len);
+        DEBUG_printf("Chaning dshot value failed\n");
+        return;
+      }
+
+      if (arg == SPIN_COATER_MIN_THROTTLE_COMMAND) {
+        ctx->spin_coater.spin_state = SPIN_IDLE;
+        cancel_alarm(ctx->spin_coater.timer_id);
+        const char msg[] = "spin coater stopped\r\n";
+        feedback(msg, sizeof(msg)-1);
+      } else {
+        ctx->spin_coater.spin_state = SPIN_STARTED_WITH_FORCE_VALUE;
+      }
+  }
+#endif // CONFIG_SPIN_CATER_DSHOT/PWM
+  else if (sscanf(buffer, "spin_start %u %u", &arg, &arg2) ==
+            2) {
+    if(arg > SPIN_COATER_MAX_RPM_VALUE) {
+      char msg[BUF_SIZE];
+      const size_t msg_len = 
+        snprintf(msg,
+                sizeof(msg),
+                "RPM value to high. Max RPM can be %d\r\n",
+                SPIN_COATER_MAX_RPM_VALUE);
+      feedback(msg, msg_len);
+      return;
+    }
+
+    ctx->spin_coater.set_rpm = arg;
+#if CONFIG_SPIN_COATER == CONFIG_SPIN_COATER_PWM
+    ctx->spin_coater.pwm_duty = PWM_HEAVY_LOADED_IDLE_DUTY;
+#elif CONFIG_SPIN_COATER == CONFIG_SPIN_COATER_DSHOT
+    ctx->spin_coater.dshot_throttle_val = DSHOT_HEAVY_LOADED_IDLE_DUTY;
+#endif
+    ctx->spin_coater.spin_state = SPIN_STARTED_WITH_TIMER;
+    ctx->spin_coater.timer_id =
+      add_alarm_in_ms(arg2*MILLISECONDS_PER_SECOND,
+                      timer_spin_callback,
+                      ctx,
+                      false);
+
+    const char msg[] = "spin started\r\n";
+    feedback(msg, sizeof(msg)-1);
+  } else if (strncmp(buffer, "spin_stop\n", 10) == 0) {
+#if CONFIG_SPIN_COATER == CONFIG_SPIN_COATER_PWM
+    const int ret = set_spin_coater_pwm_safe(ctx, PWM_IDLE_DUTY);
+    if (ret) {
+      DEBUG_printf("Chaning PWM duty failed\n");
+      return;
+    }
+#elif CONFIG_SPIN_COATER == CONFIG_SPIN_COATER_DSHOT
+  const int ret = set_dshot_safe(ctx, SPIN_COATER_MIN_THROTTLE_COMMAND);
+  if (ret) {
+    DEBUG_printf("Chaning dshot value failed\n");
+    return;
+  }
+#endif
+    ctx->spin_coater.spin_state = SPIN_SMOOTH_STOP_REQUESTED;
+    cancel_alarm(ctx->spin_coater.timer_id);
+    const char msg[] = "spin stopped\r\n";
+    feedback(msg, sizeof(msg)-1);
+  }
+#endif // CONFIG_SPIN_COATER 
+ else if (sscanf(buffer, "max_pwm %u", &arg) == 1) {
     const int res = set_max_pwm_safe(ctx, arg);
     if (res == 1) {
       const char msg[] = "pwm argument too big!\r\n";
@@ -247,15 +371,15 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
       feedback(msg, msg_len);
   } else if (sscanf(buffer, "pwm %u", &arg) == 1) {
     const int res= set_pwm_safe(FURNACE_FIRE_PIN, ctx, arg);
-    if (res == 0){
+    if (res == 0) {
 #if CONFIG_AUTO == CONFIG_AUTO_PILOT || CONFIG_AUTO == CONFIG_AUTO_MAPPER
       ctx->pilot.is_enabled = 0;
 #endif
-    } else if ( res == 1){
+    } else if ( res == 1) {
       const char msg[] = "pwm argument too big!\r\n";
       const size_t msg_len = sizeof(msg)-1;
       feedback(msg, msg_len);
-    } else if ( res == -1){
+    } else if ( res == -1) {
       const char msg[] = "set_pwm_safe: unexpected pin argument!\r\n";
       const size_t msg_len = sizeof(msg)-1;
       feedback(msg, msg_len);
@@ -333,6 +457,18 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
                         "                  \t\t\t 1 - on\n"
                         "map               \t\t shows current map status\n"
 #endif
+#if CONFIG_SPIN_COATER
+#if CONFIG_SPIN_COATER == CONFIG_SPIN_COATER_PWM
+                        "spin_pwm <val>        \t\t start spinning with given pwm value, can be <49, 98> \n"
+#elif CONFIG_SPIN_COATER == CONFIG_SPIN_COATER_DSHOT
+                        "spin_dshot <val>      \t\t start spinning with given dshot value, can be <48, 2048> \n"
+#endif
+                        "spin_start <rpm> <time>  \t set spinner in automatic mode.\n"
+                        "                  \t\t Spinner will spin for given time with requested RPM speed.\n"
+                        "                  \t\t\t <rpm> - spin coater speed rotation goal. <0;6000>\n"
+                        "                  \t\t\t <time> - spining time in seconds.<0; INF>\n"
+#endif // CONFIG_SPIN_COATER
+                        "spin_stop         \t\t stop spinner \n"
                         "log <option> <0;1>\t\t sets output level on stdio\n"
                         "                  \t\t\t options:\n"
                         "                  \t\t\t\t server,\n"
@@ -855,6 +991,10 @@ main_work_loop(void)
   init_magnetron(ctx);
 #endif
 
+#if CONFIG_SPIN_COATER
+  init_spin_coater(ctx);
+#endif
+
   cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
 
   while (1) {
@@ -881,6 +1021,16 @@ main_work_loop(void)
 #if CONFIG_MAGNETRON
     const bool magnetron_deadline = now > ctx->magnetron_deadline;
     do_magnetron_work(ctx, magnetron_deadline);
+#endif
+
+#if CONFIG_SPIN_COATER
+    // used only in automatic mode with timer
+    const bool spin_coater_throttle_value_update_deadline = now > ctx->spin_coater_throttle_value_update_deadline;
+    do_spin_coater_throttle_value_update(ctx, spin_coater_throttle_value_update_deadline);
+
+    const bool spin_coater_rpm_log_deadline = now > ctx->spin_coater_rpm_log_deadline;
+    do_spin_coater_rpm_log_update(ctx, spin_coater_rpm_log_deadline);
+
 #endif
   }
 
