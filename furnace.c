@@ -111,7 +111,7 @@ typedef struct {
 } furnace_context_t;
 
 #if CONFIG_WATER
-  #define WATER_PIN 12
+  #define WATER_PIN 9
   #define WATER_PIN_SLICE pwm_gpio_to_slice_num(WATER_PIN)
 #endif
 
