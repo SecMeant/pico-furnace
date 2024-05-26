@@ -97,7 +97,7 @@ pico_sdk: checkenv_PICO_SDK_PATH checkenv_PICO_EXTRAS_PATH
 
 build/: ./configure_wifi.sh ./scripts/build_native.sh wlan.ini pico_sdk check_cflags
 	CFLAGS="$(CFLAGS)" ./scripts/build_native.sh
-	CFLAGS="$(CFLAGS)" ./configure_wifi.sh
+	CFLAGS="$(CFLAGS)" CONFIG_HOSTNAME=$(CONFIG_HOSTNAME) ./configure_wifi.sh
 
 ninja: build/
 	ninja -C build/
