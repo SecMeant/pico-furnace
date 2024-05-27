@@ -341,6 +341,11 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
                         "                  \t\t\t 1 - on\n"
                         "map               \t\t shows current map status\n"
 #endif
+#if CONFIG_STIRRER
+                        "stir <0;1>        \t\t turns on the stirring cap for beaker\n"
+                        "                  \t\t\t 0 - off\n"
+                        "                  \t\t\t 1 - on\n"
+#endif
                         "log <option> <0;1>\t\t sets output level on stdio\n"
                         "                  \t\t\t options:\n"
                         "                  \t\t\t\t server,\n"
