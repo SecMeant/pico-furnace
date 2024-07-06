@@ -31,3 +31,5 @@
 #define STR_HELPER(X) #X
 
 #define BUF_SIZE 64
+
+#define FLASH_WRITE_MS 5000

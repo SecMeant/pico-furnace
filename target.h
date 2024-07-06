@@ -77,6 +77,11 @@ typedef struct {
 #if CONFIG_AUTO == CONFIG_AUTO_MAPPER
   mapper_context_t  mapper;
 #endif
+
+#if CONFIG_FLASH
+  absolute_time_t flash_deadline;
+#endif
+
 } furnace_context_t;
 
 

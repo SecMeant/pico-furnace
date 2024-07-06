@@ -1,3 +1,6 @@
+/*      file is taken from raspberry pico sdk "memmap_default.ld"     */
+/*      And modified to meet our requirements                         */
+
 /* Based on GCC ARM embedded samples.
    Defines the following symbols for use by code:
     __exidx_start
@@ -21,13 +24,18 @@
     __stack (== StackTop)
 */
 
+FLASH_CONFIG_DATA_SIZE = 2 * 4k ;
+
 MEMORY
 {
-    FLASH(rx) : ORIGIN = 0x10000000, LENGTH = 2048k
+    FLASH(rx) : ORIGIN = 0x10000000, LENGTH = 2048k - FLASH_CONFIG_DATA_SIZE
+    FLASH_CONFIG(rw) : ORIGIN = ORIGIN(FLASH) + LENGTH(FLASH), LENGTH = FLASH_CONFIG_DATA_SIZE
     RAM(rwx) : ORIGIN =  0x20000000, LENGTH = 256k
     SCRATCH_X(rwx) : ORIGIN = 0x20040000, LENGTH = 4k
     SCRATCH_Y(rwx) : ORIGIN = 0x20041000, LENGTH = 4k
 }
+
+FLASH_CONFIG_DATA_START = ORIGIN(FLASH_CONFIG) ;
 
 ENTRY(_entry_point)
 
@@ -115,6 +123,13 @@ SECTIONS
         *(.binary_info.*)
     } > FLASH
     __binary_info_end = .;
+
+    . = ALIGN(4096) ;
+
+    .flash_config :
+    {
+    } > FLASH_CONFIG
+
     . = ALIGN(4);
 
    .ram_vector_table (NOLOAD): {
