@@ -17,6 +17,10 @@
 #endif
 #include "logger.h"
 
+#if CONFIG_FLASH
+  #include "flash_io.h"
+#endif
+
 #include "common.h"
 #include CONSTEVAL_HEADER
 
@@ -817,6 +821,10 @@ main_work_loop(void)
   init_stirrer();
 #endif
 
+#if CONFIG_FLASH
+  init_flash(ctx);
+#endif
+
   cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
 
   while (1) {
@@ -836,6 +844,10 @@ main_work_loop(void)
 #endif
 #if CONFIG_AUTO == CONFIG_AUTO_MAPPER
     do_mapper_work(ctx);
+#endif
+
+#if CONFIG_FLASH
+    do_flash_work(ctx);
 #endif
 
     if (deadline_met)
