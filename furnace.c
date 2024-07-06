@@ -24,8 +24,6 @@
 #define DEBUG_printf    printf
 #define BUF_SIZE        64
 
-#define STR(X) STR_HELPER(X)
-#define STR_HELPER(X) #X
 
 /* GPIO for enabling and disabling heating of the furnace. */
 #define FURNACE_FIRE_PIN CONFIG_FURNACE_FIRE_PIN

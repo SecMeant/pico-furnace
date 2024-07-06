@@ -26,3 +26,6 @@
 #if CONFIG_STIRRER
   #define STIRRER_PIN 27
 #endif
+
+#define STR(X) STR_HELPER(X)
+#define STR_HELPER(X) #X
