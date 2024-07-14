@@ -1,33 +1,23 @@
 #include <stdint.h>
+#include <time.h>
 
 #include "hardware/pwm.h"
+#include "pico/stdlib.h"
 
-#define SHUTTER_PWM_DUTY ((uint16_t) 20000)
-#define SHUTTER_PWM_SYSCLK_DIV ((uint8_t) 125)
-#define SHUTTER_PWM_FREQUENCY  50U
+#include "shutter.h"
 
-#define SHUTTER_OFF_PWM       600
-#define SHUTTER_ON_PWM        2350                // FS90 Micro Servo
+#define SHUTTER_PWM_FREQUENCY 50U
+
+#define SHUTTER_OFF_PWM 600
+#define SHUTTER_ON_PWM  2350                     // FS90 Micro Servo
                                                   // Docs: https://holzcoredump.cc/FITEC_FS90.pdf
-#define MAX_SHUTTER_MS 15000
 
 #define SHUTTER_DELAY_MS  250                     // delay for shutter to get to right position
 
-#define SHUTTER_START_UNSTABLE    0
-#define SHUTTER_END_UNSTABLE      1
-#define SHUTTER_START_STABLE      2
-#define SHUTTER_END_STABLE        3
-#define SHUTTER_ON_OPTION         4
-#define SHUTTER_OFF_OPTION        5
-
-#define SHUTTER_PIN 0
-#define SHUTTER_PIN_SLICE pwm_gpio_to_slice_num(SHUTTER_PIN)
-
-typedef struct {
-  absolute_time_t deadline;
-  uint16_t        time_ms;
-  uint8_t         intern_state;
-} shutter_context_t;
+#define SHUTTER_START_UNSTABLE 0
+#define SHUTTER_END_UNSTABLE   1
+#define SHUTTER_START_STABLE   2
+#define SHUTTER_END_STABLE     3
 
 void
 do_shutter_work(shutter_context_t *shutter)
