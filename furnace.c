@@ -247,6 +247,8 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
                         "reboot            \t\t reboot device\n"
                         "pwm <0;50>        \t\t sets pwm\n"
                         "pwm               \t\t prints current pwm level\n"
+                        "max_pwm <0;50>    \t\t sets max pwm level.\n"
+                        "                  \t\t\t Device will never exceed this pwm value\n"
 #if CONFIG_THERMO && CONFIG_AUTO == CONFIG_AUTO_PILOT
                         "temp <0;" STR(MAX_TEMP) ">     \t\t sets wanted temperature\n"
                         "temp              \t\t shows current wanted temperature\n"
