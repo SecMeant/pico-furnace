@@ -420,8 +420,7 @@ enum flash_valid
 {
   VALID_1    = 1 << 0,
   VALID_2    = 1 << 1,
-  BOTH_VALID = 1 << 2,
-  INVALID    = 1 << 3,
+  INVALID    = 1 << 2,
 };
 
 static void
@@ -485,36 +484,36 @@ flash_fix_blocks()
 }
 
 static enum flash_valid
+flash_check_data(const flash_data_t* ptr, enum flash_valid valid)
+{
+  if(ptr->data.tag                 == TAG &&
+     ptr->data.targets.as_unsigned == target.as_unsigned)
+    return valid;
+
+  return INVALID;
+}
+
+// find which ptr has last written entry in it
+// and check if it is valid entry
+static enum flash_valid
 flash_validate_blocks()
 {
   flash_fix_blocks();
-  enum flash_valid valid = INVALID;
 
   const int f1_index = flash_ptr_1.current_index;
   const int f2_index = flash_ptr_2.current_index;
 
-  if(f1_index != -1)
+  // there is no valid flash entry
+  if(f1_index == -1 &&
+     f2_index == -1)
   {
-    if(flash_ptr_1.ptr[f1_index].data.tag                 == TAG &&
-       flash_ptr_1.ptr[f1_index].data.targets.as_unsigned == target.as_unsigned)
-    {
-      valid = VALID_1;
-    }
+    return INVALID;
   }
 
-  if(f2_index != -1)
-  {
-    if(flash_ptr_2.ptr[f2_index].data.tag                 == TAG &&
-       flash_ptr_2.ptr[f2_index].data.targets.as_unsigned == target.as_unsigned)
-    {
-      if(valid == VALID_1)
-        valid = BOTH_VALID;
-      else
-        valid = VALID_2;
-    }
-  }
-
-  return valid;
+  if(f2_index == f1_index || f2_index == FLASH_MAX_PAGE_INDEX)
+    return flash_check_data(&flash_ptr_2.ptr[f2_index], VALID_2);
+  else
+    return flash_check_data(&flash_ptr_1.ptr[f1_index], VALID_1);
 }
 
 static void
@@ -593,26 +592,7 @@ init_flash(furnace_context_t* ctx)
 
     case VALID_2:
     {
-      // flash_ptr_2 has valid data, now we should check if
-      // we can read from this
-      // (if flash_ptr_2.current_index is last flash_write operation)
-
-      // We can read from this if:
-      // flash_ptr_1.current_index == flash_ptr_2.current_index ||
-      // flash_ptr_1.current_index == -1 &&
-      //   flash_ptr_2.current_index == FLASH_MAX_PAGE_INDEX
-
-      if(flash_ptr_1.current_index <= flash_ptr_2.current_index)
-         flash_read(&flash_ptr_2, ctx);
-
-    } break;
-
-    case BOTH_VALID:
-    {
-      if(flash_ptr_1.current_index == flash_ptr_2.current_index)
-        flash_read(&flash_ptr_2, ctx);
-      else
-        flash_read(&flash_ptr_1, ctx);
+      flash_read(&flash_ptr_2, ctx);
     } break;
 
     case INVALID:
