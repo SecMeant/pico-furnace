@@ -178,6 +178,10 @@ command_handler(furnace_context_t* ctx, uint8_t* buffer, void (*feedback)(const 
       const size_t msg_len = sizeof(msg)-1;
       feedback(msg, msg_len);
     }
+  } else if (strncmp(buffer, "max_pwm\n", 8) == 0) {
+      char msg[MAX_PWM_FMT_SIZE];
+      const size_t msg_len = snprintf(msg, sizeof(msg), MAX_PWM_STATUS_FMT, ctx->ceiling_pwm);
+      feedback(msg, msg_len);
   } else if (strncmp(buffer, "pwm\n", 4) == 0) {
       char msg[16];
       const size_t msg_len = snprintf(msg, sizeof(msg), "pwm = %d\r\n", ctx->pwm_level);
