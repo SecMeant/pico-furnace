@@ -33,6 +33,13 @@ calculate_none_size(FILE* fptr)
 }
 #endif
 
+static void
+calculate_max_pwm_fmt(FILE* fptr)
+{
+  const size_t size = snprintf(0, 0, MAX_PWM_STATUS_FMT, MAX_PWM);
+  fprintf(fptr, "#define MAX_PWM_FMT_SIZE %u\n", size);
+}
+
 
 int
 main()
@@ -40,6 +47,7 @@ main()
   FILE* fptr = fopen(CONSTEVAL_HEADER, "w");
   prepare(fptr);
   calculate_status_size(fptr);
+  calculate_max_pwm_fmt(fptr);
 #if CONFIG_AUTO == CONFIG_AUTO_MAPPER
   calculate_mapper_size(fptr);
 #endif
