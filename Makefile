@@ -108,7 +108,7 @@ ninja: build/
 
 build/furnace.uf2: ninja
 flash: build/furnace.uf2
-	scripts/rpiflash.sh $(RPI_USB)
+	picotool load -f build/furnace.uf2
 
 clean:
 	rm -rf build/
