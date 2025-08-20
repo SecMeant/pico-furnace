@@ -6,7 +6,7 @@
 #define MAX_PWM ((unsigned int)(CONFIG_MAX_PWM))
 #define MAX_AUTO 1
 
-#define FORMAT_STATUS_FMT "temp:%d/%d, pwm:%u/%u/%u, auto:%d\n"
+#define FORMAT_STATUS_FMT "temp:%d/%d, pwm:%u/%u/%u, auto:%d, rpm: %d\n"
 
 #if CONFIG_AUTO == CONFIG_AUTO_MAPPER
 /*
@@ -20,7 +20,7 @@
 #endif
 
 #if CONFIG_AUTO == CONFIG_AUTO_NONE
-  #define FORMAT_STATUS_AUTO_NONE "temp:%d, pwm:%u/%u\n"
+  #define FORMAT_STATUS_AUTO_NONE "temp:%d, pwm:%u/%u, rpm: %d\n"
 #endif
 
 #if CONFIG_STIRRER
@@ -35,3 +35,5 @@
 #define FLASH_WRITE_MS 5000
 
 #define MAX_PWM_STATUS_FMT "max_pwm = %u\r\n"
+
+#define MILLISECONDS_PER_SECOND 1000

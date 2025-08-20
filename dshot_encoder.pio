@@ -1,0 +1,76 @@
+.program dshot_encoder
+
+.define public BIT_PERIOD 40
+.define public MIN_THROTTLE_VALUE 48
+.define public MAX_THROTTLE_VALUE 2048
+
+.define ONE_HIGH 30
+.define ONE_LOW (BIT_PERIOD - ONE_HIGH)
+.define ONE_HIGH_DELAY (ONE_HIGH - 1)
+.define ONE_LOW_DELAY (ONE_LOW - 5)
+
+.define ZERO_HIGH 15
+.define ZERO_LOW (BIT_PERIOD - ZERO_HIGH)
+.define ZERO_HIGH_DELAY (ZERO_HIGH - 1)
+.define ZERO_LOW_DELAY (ZERO_LOW - 5)
+
+// 8kHz DShot300 -> 1500 frame period -> 1500 - (BIT_PERIOD * 16 + 1) = 859 delay
+.define FRAME_DELAY (32 - 2)
+.define FRAME_DELAY_COUNT 26
+.define FRAME_DELAY_REMAINDER (27 - 4)  // 27 = 859 - 32 * 26
+
+init:
+  ; grab MIN_THROTTLE  value from fifo and store it in scratch register
+  pull block
+  mov x, osr
+  jmp start_frame
+maybe_pull:
+  pull noblock ; if fifo empty, mov osr, x will be automatically performed
+  mov x, osr ; recycle value to reuse next time. In X we keep last throttle value
+  nop [FRAME_DELAY_REMAINDER]
+  set y, FRAME_DELAY_COUNT
+frame_delay_loop:
+  jmp !y start_frame [FRAME_DELAY]
+  jmp y-- frame_delay_loop
+start_frame:
+  out y, 16 ; discard 16 most significant bits, payload is only 16 bit
+check_start:
+  jmp !osre start_bit
+  jmp maybe_pull
+start_bit:
+  out y, 1
+  jmp !y do_zero
+do_one:
+  set pins, 1 [ONE_HIGH_DELAY]
+  set pins, 0 [ONE_LOW_DELAY]
+  jmp check_start
+do_zero:
+  set pins, 1 [ZERO_HIGH_DELAY]
+  set pins, 0 [ZERO_LOW_DELAY]
+  jmp check_start
+
+
+% c-sdk {
+#include "hardware/clocks.h"
+
+static inline void dshot_encoder_program_init(PIO pio, uint sm, uint offset, uint pin) {
+    pio_sm_config c = dshot_encoder_program_get_default_config(offset);
+
+    sm_config_set_set_pins(&c, pin, 1);
+    pio_gpio_init(pio, pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+
+    sm_config_set_out_shift(&c, false, false, 32);
+
+    double clocks_per_us = clock_get_hz(clk_sys) / 1000000;
+    // 3.333us per bit for dshot300
+    sm_config_set_clkdiv(&c, 3.333 / dshot_encoder_BIT_PERIOD * clocks_per_us);
+
+    pio_sm_init(pio, sm, offset, &c);
+
+    pio_sm_put_blocking(pio, sm, dshot_encoder_MIN_THROTTLE_VALUE);
+
+    // The PIO will begin waiting for the first command value
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}

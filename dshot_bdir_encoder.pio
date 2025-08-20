@@ -1,0 +1,111 @@
+.program dshot_encoder
+
+.define public BIT_PERIOD 40
+.define public MIN_THROTTLE_VALUE 48
+.define public MAX_THROTTLE_VALUE 2048
+
+.define ONE_HIGH 30
+.define ONE_LOW (BIT_PERIOD - ONE_HIGH)
+.define ONE_HIGH_DELAY (ONE_HIGH - 1)
+.define ONE_LOW_DELAY (ONE_LOW - 5)
+
+.define ZERO_HIGH 15
+.define ZERO_LOW (BIT_PERIOD - ZERO_HIGH)
+.define ZERO_HIGH_DELAY (ZERO_HIGH - 1)
+.define ZERO_LOW_DELAY (ZERO_LOW - 5)
+
+// 8kHz DShot300 -> 1500 frame period -> 1500 - (BIT_PERIOD * 16 + 1) = 859 delay
+// 40 * 16 + 1 = 641 // time required to send frames
+// 360 + 360 = 720 // switching from send/receive mode
+// 21 bits * 32 cycles = 672
+// 641 + 720 + 672 == 2033  
+// We need wait about 30us before reading the value
+// however, experimentally my uc need 34 us
+.define READ_AFTER_SEND_CYCLES 408 // 408 = 30 * 14 + 18
+.define READ_AFTER_SEND_DELAY (14) // 30*14 = 420
+.define READ_AFTER_SEND_DELAY_TIMES 30
+.define READ_AFTER_SEND_DELAY_REMINDER (18 - 7 - 1) // -1 required by instruction
+.define RECEIVED_PAYLOAD_LENGTH 20 // ERPM GCR returned length
+
+init:
+  ; grab MIN_THROTTLE  value from fifo and store it in scratch register
+  pull block
+  mov x, osr
+  set pins, 1
+  jmp start_frame
+maybe_pull:
+  pull noblock ; if fifo empty, mov osr, x will be automatically performed
+  mov x, osr ; recycle value to reuse next time. In X we keep last throttle value
+start_frame:
+  out y, 16 ; discard 16 most significant bits, payload is only 16 bit
+transmit_or_receive:
+  jmp !osre transmit_bit
+  jmp receive_frame
+transmit_bit:
+  out y, 1
+  jmp !y do_zero
+do_one:
+  set pins, 0 [ONE_HIGH_DELAY]
+  set pins, 1 [ONE_LOW_DELAY]
+  jmp transmit_or_receive
+do_zero:
+  set pins, 0 [ZERO_HIGH_DELAY]
+  set pins, 1 [ZERO_LOW_DELAY]
+  jmp transmit_or_receive
+receive_frame:
+  set pindirs, 0 ; set pin as input
+  set y, READ_AFTER_SEND_DELAY_TIMES
+wait_for_frame:
+  ; we are waiting here 30 uC seconds, to allow ESC reconfigure for sending. 
+  ; Line is set high that time. Returned data starts with 0 always
+  ; using not gate we are changing the logic to have line set to low, and invert first bit that
+  ; will indicate start of transmiation
+  jmp pin receive_telemetry_init [READ_AFTER_SEND_DELAY/2 -1] ;reversed_input_pin is used here that is inverted by not gate before going on uC pin
+  jmp pin receive_telemetry_init [READ_AFTER_SEND_DELAY/2 -2] ;reversed_input_pin is used here that is inverted by not gate before going on uC pin
+  jmp y-- wait_for_frame
+receive_telemetry_init:
+  set y, RECEIVED_PAYLOAD_LENGTH [7]
+receive_telemetry:
+  in pins, 1 ; read frame once frame become stable
+  jmp y-- receive_telemetry [30] ; receive another bit after 2.66ns 30 + 1 + 1 == 32
+wait_for_esc:
+  set y, READ_AFTER_SEND_DELAY_TIMES; we need wait another 30 us after frame receiving to let ESC to switch to receving mode 
+wait_esc:
+  jmp y-- wait_esc [READ_AFTER_SEND_DELAY]
+push_and_wrap:
+  push noblock
+  set pindirs, 1 ; set pin as output
+  jmp maybe_pull
+
+% c-sdk {
+#include "hardware/clocks.h"
+
+static inline void bidir_dshot_encoder_program_init(PIO pio, uint sm, uint offset, uint pin, uint reversed_input_pin) {
+    pio_sm_config c = dshot_encoder_program_get_default_config(offset);
+    sm_config_set_out_pins(&c, pin, 1);
+    sm_config_set_set_pins(&c, pin, 1);
+    sm_config_set_in_pins(&c, pin);
+    sm_config_set_jmp_pin(&c, reversed_input_pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+    pio_sm_set_consecutive_pindirs(pio, sm, reversed_input_pin, 1, false);
+
+    gpio_pull_up(pin);
+    pio_gpio_init(pio, pin);
+    gpio_pull_up(reversed_input_pin);
+    pio_gpio_init(pio, reversed_input_pin);
+
+    sm_config_set_out_shift(&c, false, false, 32);
+    sm_config_set_in_shift(&c, false, false, 32);
+
+    double clocks_per_us = clock_get_hz(clk_sys) / 1000000;
+    // 3.333us per bit for dshot300
+    sm_config_set_clkdiv(&c, 3.333 / dshot_encoder_BIT_PERIOD * clocks_per_us);
+
+    pio_sm_init(pio, sm, offset, &c);
+
+    pio_sm_put_blocking(pio, sm, dshot_encoder_MIN_THROTTLE_VALUE);
+
+    // The PIO will begin waiting for the first command value
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}

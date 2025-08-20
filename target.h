@@ -3,6 +3,9 @@
 #if CONFIG_SHUTTER
   #include "shutter.h"
 #endif
+#if CONFIG_SPIN_COATER
+  #include "spin_coater.h"
+#endif
 
 
 typedef struct {
@@ -80,6 +83,11 @@ typedef struct {
 
 #if CONFIG_FLASH
   absolute_time_t flash_deadline;
+#endif
+
+#if CONFIG_SPIN_COATER
+  absolute_time_t spin_coater_throttle_value_update_deadline;
+  spin_coater_context_t spin_coater;
 #endif
 
 } furnace_context_t;
